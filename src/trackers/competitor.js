@@ -1,6 +1,7 @@
 import { analyzeSite, analyzeKeyPages } from '../scrapers/site-analyzer.js';
 import { scrapeNewsMentions } from '../scrapers/google-news.js';
 import { searchPressMentions, extractRatingsFromResults } from '../scrapers/brave-search.js';
+import { pappersLookup, hasPappersKey } from '../scrapers/pappers.js';
 import { diffTechStacks } from '../utils/tech-detect.js';
 import { fetch } from '../utils/fetcher.js';
 import { load } from '../utils/parser.js';
@@ -82,6 +83,15 @@ export async function runCompetitorCheck(tracker) {
     }
   } catch {}
 
+  // --- Pappers lookup for .fr domains ---
+  let pappers = null;
+  const hostname = new URL(url).hostname;
+  if (hostname.endsWith('.fr') && hasPappersKey()) {
+    try {
+      pappers = await pappersLookup(brandName);
+    } catch {}
+  }
+
   return {
     type: 'competitor',
     trackerId: tracker.id,
@@ -103,6 +113,7 @@ export async function runCompetitorCheck(tracker) {
     contentStats: siteData.contentStats,
     press,
     reputation,
+    pappers,
   };
 }
 

@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { trackCompetitor, trackKeyword, trackBrand } from './commands/track.js';
+import { trackCompetitor, trackKeyword, trackBrand, trackPerson } from './commands/track.js';
+import { runDiscover } from './commands/discover.js';
 import { runCheck } from './commands/check.js';
 import { runDigest } from './commands/digest.js';
 import { runDiff } from './commands/diff.js';
@@ -44,6 +45,14 @@ track
   .description('Track brand mentions across the web')
   .action(async (name, options) => {
     await trackBrand(name, options);
+  });
+
+track
+  .command('person <name>')
+  .description('Track press mentions and social presence for a person or public figure')
+  .option('--org <org>', 'Filter results by organization affiliation (for disambiguation)')
+  .action(async (name, options) => {
+    await trackPerson(name, options);
   });
 
 // ─── list ─────────────────────────────────────────────────────────────────────
@@ -143,6 +152,17 @@ program
   .option('--output <file>', 'Save pitch to file')
   .action(async (trackerId, options) => {
     await runPitch(trackerId, options);
+  });
+
+// ─── discover ─────────────────────────────────────────────────────────────────
+
+program
+  .command('discover <url>')
+  .description('Discover competitors for a given URL using web search and AI scoring')
+  .option('--auto-track', 'Automatically create competitor trackers for top 5 results')
+  .option('--ai', 'Use AI for smarter query generation and relevance scoring (requires API key)')
+  .action(async (url, options) => {
+    await runDiscover(url, options);
   });
 
 // ─── notify ───────────────────────────────────────────────────────────────────

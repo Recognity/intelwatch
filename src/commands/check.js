@@ -5,6 +5,7 @@ import {
 import { runCompetitorCheck, diffCompetitorSnapshots } from '../trackers/competitor.js';
 import { runKeywordCheck, diffKeywordSnapshots } from '../trackers/keyword.js';
 import { runBrandCheck, diffBrandSnapshots } from '../trackers/brand.js';
+import { runPersonCheck, diffPersonSnapshots } from '../trackers/person.js';
 import { header, section, diffLine, success, warn, error, trackerTypeIcon } from '../utils/display.js';
 
 export async function runCheck(options) {
@@ -46,6 +47,9 @@ export async function runCheck(options) {
       } else if (tracker.type === 'brand') {
         snapshot = await runBrandCheck(tracker);
         changes = diffBrandSnapshots(prevSnapshot, snapshot);
+      } else if (tracker.type === 'person') {
+        snapshot = await runPersonCheck(tracker);
+        changes = diffPersonSnapshots(prevSnapshot, snapshot);
       }
 
       // Save snapshot
@@ -86,6 +90,45 @@ export async function runCheck(options) {
 
       if (tracker.type === 'brand') {
         console.log(chalk.gray(`  ${snapshot.mentionCount} mentions found`));
+        if (snapshot.socialMentions && Object.keys(snapshot.socialMentions).length > 0) {
+          const socialParts = Object.entries(snapshot.socialMentions)
+            .filter(([, arr]) => arr.length > 0)
+            .map(([platform, arr]) => {
+              const icon = platform === 'twitter' ? 'X' : platform === 'reddit' ? 'Reddit' : 'LinkedIn';
+              return `${icon}(${arr.length})`;
+            });
+          if (socialParts.length > 0) {
+            console.log(chalk.cyan(`  📱 Social: ${socialParts.join(' ')}`));
+          }
+        }
+      }
+
+      if (tracker.type === 'person') {
+        const s = snapshot;
+        const sent = s.sentimentBreakdown || {};
+        const sentStr = `👍${sent.positive || 0} 😐${sent.neutral || 0} 👎${sent.negative || 0}`;
+        console.log(chalk.magenta(`  👤 ${s.personName}: ${s.mentionCount} mentions | ${sentStr}`));
+        if (s.org) console.log(chalk.gray(`  Org filter: ${s.org}`));
+
+        // Social mentions summary
+        if (s.socialMentions && Object.keys(s.socialMentions).length > 0) {
+          const socialParts = Object.entries(s.socialMentions)
+            .filter(([, arr]) => arr.length > 0)
+            .map(([platform, arr]) => {
+              const icon = platform === 'twitter' ? 'X' : platform === 'reddit' ? 'Reddit' : 'LinkedIn';
+              return `${icon}(${arr.length})`;
+            });
+          if (socialParts.length > 0) {
+            console.log(chalk.cyan(`  📱 Social: ${socialParts.join(' ')}`));
+          }
+        }
+
+        // Top mentions
+        for (const m of (s.mentions || []).slice(0, 5)) {
+          const sentEmoji = m.sentiment === 'positive' || m.sentiment === 'slightly_positive' ? '👍'
+            : m.sentiment === 'negative' || m.sentiment === 'slightly_negative' ? '👎' : '😐';
+          console.log(chalk.gray(`    ${sentEmoji} [${m.category}] ${m.title?.substring(0, 80)} (${m.domain})`));
+        }
       }
 
       if (tracker.type === 'competitor') {
@@ -185,6 +228,26 @@ export async function runCheck(options) {
           }
           if (!validPlatforms.length && !validReviews.length) {
             console.log(chalk.gray(`  ⭐ Reputation: no ratings found`));
+          }
+        }
+
+        // Pappers (French company data)
+        if (snapshot.pappers) {
+          const p = snapshot.pappers;
+          const parts = [`SIREN: ${p.siren || '?'}`];
+          if (p.formeJuridique) parts.push(p.formeJuridique);
+          if (p.dateCreation) parts.push(`créée ${p.dateCreation}`);
+          if (p.city) parts.push(p.city);
+          console.log(chalk.blue(`  🏛  Pappers: ${parts.join(' · ')}`));
+          if (p.effectifs) console.log(chalk.gray(`     Effectifs: ${p.effectifs}`));
+          if (p.ca) {
+            const caStr = p.ca >= 1_000_000 ? `${(p.ca / 1_000_000).toFixed(1)}M€` : `${(p.ca / 1000).toFixed(0)}K€`;
+            console.log(chalk.gray(`     CA: ${caStr}${p.caYear ? ` (${p.caYear})` : ''}`));
+          }
+          if (p.nafCode) console.log(chalk.gray(`     NAF: ${p.nafCode}${p.nafLabel ? ` — ${p.nafLabel}` : ''}`));
+          if (p.dirigeants?.length > 0) {
+            const dirs = p.dirigeants.slice(0, 3).map(d => `${d.prenom || ''} ${d.nom || ''} (${d.role || '?'})`).join(', ');
+            console.log(chalk.gray(`     Dirigeants: ${dirs}`));
           }
         }
       }

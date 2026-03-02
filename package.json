@@ -22,5 +22,22 @@
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "author": "Recognity <anthony@recognity.fr> (https://recognity.fr)",
+  "homepage": "https://recognity.fr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/recognity/intelwatch.git"
+  },
+  "keywords": [
+    "competitive-intelligence",
+    "osint",
+    "cli",
+    "competitor",
+    "brand-monitoring",
+    "press",
+    "sentiment",
+    "ai",
+    "pappers"
+  ]
 }

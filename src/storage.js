@@ -152,6 +152,7 @@ export function saveReport(filename, content) {
 function generateId(type, data) {
   const base = type === 'competitor' ? slugify(data.url)
     : type === 'keyword' ? 'kw-' + slugify(data.keyword)
+    : type === 'person' ? 'person-' + slugify(data.personName + (data.org ? '-' + data.org : ''))
     : 'brand-' + slugify(data.brandName);
   return base.slice(0, 50);
 }

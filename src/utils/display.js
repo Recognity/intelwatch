@@ -81,6 +81,7 @@ export function trackerTypeIcon(type) {
     case 'competitor': return '🏢';
     case 'keyword': return '🔍';
     case 'brand': return '📣';
+    case 'person': return '👤';
     default: return '📌';
   }
 }

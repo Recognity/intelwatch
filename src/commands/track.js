@@ -1,6 +1,27 @@
 import { createTracker } from '../storage.js';
 import { success, warn, error } from '../utils/display.js';
 
+export async function trackPerson(name, options) {
+  const org = options.org || null;
+
+  const { tracker, created } = createTracker('person', {
+    personName: name,
+    name,
+    org,
+  });
+
+  if (created) {
+    success(`Person tracker created: ${tracker.id}`);
+    console.log(`  Person: "${name}"`);
+    if (org) console.log(`  Org   : "${org}"`);
+    console.log(`\nRun ${chalk_cyan('intelwatch check')} to fetch the first snapshot.`);
+  } else {
+    warn(`Tracker already exists: ${tracker.id}`);
+  }
+
+  return tracker;
+}
+
 export async function trackCompetitor(url, options) {
   let normalizedUrl = url;
   if (!normalizedUrl.startsWith('http')) {

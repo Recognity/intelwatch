@@ -173,6 +173,47 @@ export async function searchKeywordRankings(keyword, options = {}) {
 }
 
 /**
+ * Social media search via Brave — filters by platform.
+ * platforms: array of 'twitter', 'reddit', 'linkedin'
+ */
+export async function searchSocial(query, platforms = ['twitter', 'reddit', 'linkedin'], options = {}) {
+  const apiKey = getApiKey();
+  if (!apiKey) return { results: [], byPlatform: {}, error: 'No BRAVE_API_KEY set' };
+
+  const siteFilters = {
+    twitter: 'site:x.com OR site:twitter.com',
+    reddit: 'site:reddit.com',
+    linkedin: 'site:linkedin.com',
+  };
+
+  const siteQuery = platforms
+    .map(p => siteFilters[p])
+    .filter(Boolean)
+    .join(' OR ');
+
+  const fullQuery = `${query} (${siteQuery})`;
+
+  const search = await braveWebSearch(fullQuery, { count: options.count || 15, ...options });
+
+  const results = (search.results || []).map(r => {
+    let platform = 'other';
+    const urlLower = r.url.toLowerCase();
+    if (urlLower.includes('x.com') || urlLower.includes('twitter.com')) platform = 'twitter';
+    else if (urlLower.includes('reddit.com')) platform = 'reddit';
+    else if (urlLower.includes('linkedin.com')) platform = 'linkedin';
+    return { ...r, platform };
+  });
+
+  const byPlatform = {};
+  for (const r of results) {
+    if (!byPlatform[r.platform]) byPlatform[r.platform] = [];
+    byPlatform[r.platform].push(r);
+  }
+
+  return { results, byPlatform, error: search.error };
+}
+
+/**
  * Extract review ratings from search snippets
  */
 export function extractRatingsFromResults(results) {
