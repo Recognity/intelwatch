@@ -11,6 +11,7 @@ import { setupNotifications } from './commands/notify.js';
 import { listTrackers, removeTrackerCmd } from './commands/list.js';
 import { runAISummary } from './commands/ai-summary.js';
 import { runPitch } from './commands/pitch.js';
+import { runMA } from './commands/profile.js';
 
 const program = new Command();
 
@@ -152,6 +153,17 @@ program
   .option('--output <file>', 'Save pitch to file')
   .action(async (trackerId, options) => {
     await runPitch(trackerId, options);
+  });
+
+// ─── m-a ──────────────────────────────────────────────────────────────────────
+
+program
+  .command('profile <siren-or-name>')
+  .description('M&A due diligence report for a French company (requires Pro license)')
+  .option('--preview', 'Run limited preview: company identity + last year financials only')
+  .option('--ai', 'Generate an AI-powered due diligence summary (requires AI API key)')
+  .action(async (sirenOrName, options) => {
+    await runMA(sirenOrName, options);
   });
 
 // ─── discover ─────────────────────────────────────────────────────────────────
