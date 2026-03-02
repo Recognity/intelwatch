@@ -150,6 +150,41 @@ export async function runCheck(options) {
           const socials = Object.entries(snapshot.socialLinks).map(([k, v]) => k).join(', ');
           console.log(chalk.gray(`  Social: ${socials}`));
         }
+
+        // Press & mentions
+        if (snapshot.press && snapshot.press.totalCount > 0) {
+          const p = snapshot.press;
+          const sentStr = `👍${p.sentimentBreakdown?.positive || 0} 😐${p.sentimentBreakdown?.neutral || 0} 👎${p.sentimentBreakdown?.negative || 0}`;
+          console.log(chalk.magenta(`  📰 Press: ${p.totalCount} mentions (${p.pressCount || 0} press, ${p.forumCount || 0} forum/social) | ${sentStr}`));
+          for (const a of (p.articles || []).slice(0, 5)) {
+            const sentEmoji = a.sentiment === 'positive' || a.sentiment === 'slightly_positive' ? '👍' 
+              : a.sentiment === 'negative' || a.sentiment === 'slightly_negative' ? '👎' : '😐';
+            console.log(chalk.gray(`    ${sentEmoji} [${a.category}] ${a.title.substring(0, 80)} (${a.domain})`));
+          }
+        } else if (snapshot.press) {
+          console.log(chalk.gray(`  📰 Press: no recent mentions found`));
+        }
+
+        // Reputation / reviews
+        if (snapshot.reputation) {
+          const r = snapshot.reputation;
+          if (r.platforms?.length > 0) {
+            for (const plat of r.platforms) {
+              const ratingStr = plat.rating ? `${plat.rating}/5` : 'n/a';
+              const countStr = plat.reviewCount ? `(${plat.reviewCount} avis)` : '';
+              console.log(chalk.yellow(`  ⭐ ${plat.name}: ${ratingStr} ${countStr}`));
+            }
+          }
+          if (r.reviews?.length > 0) {
+            for (const rev of r.reviews.slice(0, 3)) {
+              const sentEmoji = rev.sentiment === 'positive' || rev.sentiment === 'slightly_positive' ? '👍' : '👎';
+              console.log(chalk.gray(`    ${sentEmoji} ${rev.title.substring(0, 80)}`));
+            }
+          }
+          if (!r.platforms?.length && !r.reviews?.length) {
+            console.log(chalk.gray(`  ⭐ Reputation: no reviews found`));
+          }
+        }
       }
 
     } catch (err) {

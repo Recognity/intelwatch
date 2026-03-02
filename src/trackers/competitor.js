@@ -1,5 +1,9 @@
 import { analyzeSite, analyzeKeyPages } from '../scrapers/site-analyzer.js';
+import { scrapeNewsMentions } from '../scrapers/google-news.js';
 import { diffTechStacks } from '../utils/tech-detect.js';
+import { fetch } from '../utils/fetcher.js';
+import { load } from '../utils/parser.js';
+import { analyzeSentiment, categorizeMention } from '../utils/sentiment.js';
 
 export async function runCompetitorCheck(tracker) {
   const { url } = tracker;
@@ -9,6 +13,90 @@ export async function runCompetitorCheck(tracker) {
 
   // Merge keyPages from deep analysis with the separate call
   const mergedKeyPages = { ...siteData.keyPages, ...keyPages };
+
+  // --- Press & reputation layer ---
+  const brandName = tracker.name || new URL(url).hostname.replace('www.', '').split('.')[0];
+  
+  let press = { articles: [], totalCount: 0 };
+  let reputation = { reviews: [], avgRating: null, platforms: [] };
+
+  try {
+    // Search Google News for the brand
+    const newsData = await scrapeNewsMentions(brandName, { lang: 'fr' });
+    const pressArticles = (newsData.mentions || []).filter(m => 
+      m.category === 'press' || m.source === 'google_news'
+    );
+    const forumMentions = (newsData.mentions || []).filter(m => 
+      m.category === 'forum' || m.category === 'social'
+    );
+    
+    press = {
+      articles: newsData.mentions.slice(0, 15).map(m => ({
+        title: m.title,
+        url: m.url,
+        domain: m.domain,
+        sentiment: m.sentiment,
+        category: m.category,
+        source: m.source,
+      })),
+      totalCount: newsData.mentionCount,
+      pressCount: pressArticles.length,
+      forumCount: forumMentions.length,
+      sentimentBreakdown: {
+        positive: newsData.mentions.filter(m => m.sentiment === 'positive' || m.sentiment === 'slightly_positive').length,
+        neutral: newsData.mentions.filter(m => m.sentiment === 'neutral').length,
+        negative: newsData.mentions.filter(m => m.sentiment === 'negative' || m.sentiment === 'slightly_negative').length,
+      },
+    };
+  } catch {}
+
+  // Search for reviews on major platforms
+  try {
+    const reviewPlatforms = [
+      { name: 'Trustpilot', searchUrl: `https://www.google.com/search?q=site:trustpilot.com+"${brandName}"` },
+      { name: 'Google Avis', searchUrl: `https://www.google.com/search?q="${brandName}"+avis+clients` },
+    ];
+    
+    for (const platform of reviewPlatforms) {
+      try {
+        await new Promise(r => setTimeout(r, 1500));
+        const resp = await fetch(platform.searchUrl, { retries: 1, delay: 1000 });
+        if (resp.status === 200) {
+          const $ = load(resp.data);
+          const text = $.text().toLowerCase();
+          
+          // Try to extract rating patterns
+          const ratingMatch = text.match(/(\d[.,]\d)\s*(?:\/\s*5|sur\s*5|out of 5|stars?|étoiles?)/);
+          const reviewCountMatch = text.match(/(\d[\d\s,.]*)\s*(?:avis|reviews?|évaluations?|notes?)/);
+          
+          if (ratingMatch || reviewCountMatch) {
+            reputation.platforms.push({
+              name: platform.name,
+              rating: ratingMatch ? ratingMatch[1].replace(',', '.') : null,
+              reviewCount: reviewCountMatch ? reviewCountMatch[1].replace(/\s/g, '') : null,
+            });
+          }
+
+          // Extract review snippets
+          $('a[href]').each((_, el) => {
+            const href = $(el).attr('href') || '';
+            if (/trustpilot|avis|review/.test(href) && href.startsWith('http')) {
+              const title = $(el).text().trim();
+              if (title.length > 15 && reputation.reviews.length < 5) {
+                const sentiment = analyzeSentiment(title);
+                reputation.reviews.push({
+                  title: title.substring(0, 150),
+                  url: href,
+                  platform: platform.name,
+                  sentiment: sentiment.label,
+                });
+              }
+            }
+          });
+        }
+      } catch {}
+    }
+  } catch {}
 
   return {
     type: 'competitor',
@@ -29,6 +117,8 @@ export async function runCompetitorCheck(tracker) {
     security: siteData.security,
     seoSignals: siteData.seoSignals,
     contentStats: siteData.contentStats,
+    press,
+    reputation,
   };
 }
 
@@ -136,6 +226,28 @@ export function diffCompetitorSnapshots(prev, curr) {
     if (!currSocials.includes(platform)) {
       changes.push({ type: 'removed', field: 'social', value: `${platform} removed` });
     }
+  }
+
+  // Press mention changes
+  const prevPressCount = prev.press?.totalCount || 0;
+  const currPressCount = curr.press?.totalCount || 0;
+  if (currPressCount > 0 && currPressCount !== prevPressCount) {
+    changes.push({
+      type: currPressCount > prevPressCount ? 'new' : 'changed',
+      field: 'press',
+      value: `${prevPressCount} → ${currPressCount} mentions (${curr.press.sentimentBreakdown?.negative || 0} negative)`,
+    });
+  }
+
+  // Reputation changes
+  const prevRating = prev.reputation?.platforms?.[0]?.rating;
+  const currRating = curr.reputation?.platforms?.[0]?.rating;
+  if (currRating && currRating !== prevRating) {
+    changes.push({
+      type: 'changed',
+      field: 'reputation',
+      value: prevRating ? `Rating: ${prevRating} → ${currRating}` : `Rating: ${currRating}/5`,
+    });
   }
 
   return changes;
