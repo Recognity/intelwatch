@@ -92,6 +92,64 @@ export async function runCheck(options) {
         const techNames = (snapshot.techStack || []).map(t => t.name).join(', ') || 'none detected';
         console.log(chalk.gray(`  Tech: ${techNames}`));
         console.log(chalk.gray(`  Pages: ${snapshot.pageCount}`));
+        
+        // Performance
+        if (snapshot.performance) {
+          const p = snapshot.performance;
+          console.log(chalk.gray(`  Response: ${p.responseTimeMs}ms | HTML: ${p.htmlSizeKB}KB | Compressed: ${p.compressed ? 'yes' : 'no'}`));
+        }
+
+        // Security summary
+        if (snapshot.security) {
+          const s = snapshot.security;
+          const secScore = [s.https, s.hsts, s.xFrameOptions, s.csp, s.xContentType].filter(Boolean).length;
+          console.log(chalk.gray(`  Security: ${secScore}/5 (HTTPS:${s.https ? '✓' : '✗'} HSTS:${s.hsts ? '✓' : '✗'} XFO:${s.xFrameOptions ? '✓' : '✗'} CSP:${s.csp ? '✓' : '✗'})`));
+        }
+
+        // SEO signals
+        if (snapshot.seoSignals) {
+          const seo = snapshot.seoSignals;
+          console.log(chalk.gray(`  SEO: title=${seo.titleLength}ch | desc=${seo.descriptionLength}ch | H1:${seo.h1Count} H2:${seo.h2Count} | ${seo.imgCount} imgs (${seo.imgWithoutAlt} no alt) | ${seo.wordCount} words`));
+        }
+
+        // Key pages found
+        if (snapshot.keyPages && Object.keys(snapshot.keyPages).length > 0) {
+          const pageLabels = Object.keys(snapshot.keyPages).join(', ');
+          console.log(chalk.gray(`  Key pages: ${pageLabels}`));
+        }
+
+        // Pricing
+        if (snapshot.pricing && snapshot.pricing.prices?.length > 0) {
+          console.log(chalk.cyan(`  💰 Pricing detected: ${snapshot.pricing.prices.slice(0, 5).join(', ')}`));
+          if (snapshot.pricing.plans?.length > 0) {
+            console.log(chalk.gray(`  Plans: ${snapshot.pricing.plans.slice(0, 3).join(' | ')}`));
+          }
+        }
+
+        // Jobs
+        if (snapshot.jobs && snapshot.jobs.estimatedOpenings > 0) {
+          console.log(chalk.yellow(`  👥 Jobs: ~${snapshot.jobs.estimatedOpenings} openings detected`));
+          if (snapshot.jobs.titles?.length > 0) {
+            for (const t of snapshot.jobs.titles.slice(0, 5)) {
+              console.log(chalk.gray(`    - ${t}`));
+            }
+          }
+        }
+
+        // Content/blog activity
+        if (snapshot.contentStats && snapshot.contentStats.recentArticles?.length > 0) {
+          console.log(chalk.green(`  📝 Blog: ${snapshot.contentStats.articleCount} recent articles`));
+          for (const a of snapshot.contentStats.recentArticles.slice(0, 3)) {
+            const dateStr = a.date ? ` (${a.date})` : '';
+            console.log(chalk.gray(`    - ${a.title}${dateStr}`));
+          }
+        }
+
+        // Social links
+        if (snapshot.socialLinks && Object.keys(snapshot.socialLinks).length > 0) {
+          const socials = Object.entries(snapshot.socialLinks).map(([k, v]) => k).join(', ');
+          console.log(chalk.gray(`  Social: ${socials}`));
+        }
       }
 
     } catch (err) {

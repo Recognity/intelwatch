@@ -7,6 +7,9 @@ export async function runCompetitorCheck(tracker) {
   const siteData = await analyzeSite(url);
   const keyPages = await analyzeKeyPages(url, ['/', '/about', '/pricing']);
 
+  // Merge keyPages from deep analysis with the separate call
+  const mergedKeyPages = { ...siteData.keyPages, ...keyPages };
+
   return {
     type: 'competitor',
     trackerId: tracker.id,
@@ -21,7 +24,11 @@ export async function runCompetitorCheck(tracker) {
     pageCount: siteData.pageCount,
     pricing: siteData.pricing,
     jobs: siteData.jobs,
-    keyPages,
+    keyPages: mergedKeyPages,
+    performance: siteData.performance,
+    security: siteData.security,
+    seoSignals: siteData.seoSignals,
+    contentStats: siteData.contentStats,
   };
 }
 
