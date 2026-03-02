@@ -1,0 +1,389 @@
+{
+  "technologies": [
+    {
+      "name": "WordPress",
+      "category": "CMS",
+      "checks": {
+        "headers": [],
+        "meta": [{ "name": "generator", "pattern": "WordPress" }],
+        "scripts": ["wp-content", "wp-includes", "wp-json"],
+        "html": ["wp-content", "wp-emoji"],
+        "paths": ["/wp-admin/", "/wp-login.php", "/wp-content/"]
+      }
+    },
+    {
+      "name": "Shopify",
+      "category": "E-commerce",
+      "checks": {
+        "headers": [{ "name": "x-shopify-stage", "pattern": ".*" }],
+        "meta": [],
+        "scripts": ["cdn.shopify.com", "shopify.com/s/files"],
+        "html": ["shopify", "Shopify.shop"],
+        "paths": ["/cdn/shop/", "/apps/"]
+      }
+    },
+    {
+      "name": "Wix",
+      "category": "Website Builder",
+      "checks": {
+        "headers": [{ "name": "x-wix-request-id", "pattern": ".*" }],
+        "meta": [{ "name": "generator", "pattern": "Wix" }],
+        "scripts": ["static.wixstatic.com", "wix.com"],
+        "html": ["wix-warmup-data", "_wix_"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Squarespace",
+      "category": "Website Builder",
+      "checks": {
+        "headers": [{ "name": "server", "pattern": "Squarespace" }],
+        "meta": [{ "name": "generator", "pattern": "Squarespace" }],
+        "scripts": ["squarespace.com", "sqsp.net"],
+        "html": ["squarespace", "sqs-layout"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Webflow",
+      "category": "Website Builder",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Webflow" }],
+        "meta": [{ "name": "generator", "pattern": "Webflow" }],
+        "scripts": ["webflow.com", "webflow.js"],
+        "html": ["w-webflow-badge", "wf-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "React",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["react.js", "react.min.js", "react-dom", "/static/js/main"],
+        "html": ["data-reactroot", "data-reactid", "__REACT_DEVTOOLS"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Vue.js",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["vue.js", "vue.min.js", "vue-router", "vuex"],
+        "html": ["__vue__", "data-v-", "v-cloak"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Angular",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["angular.js", "angular.min.js", "@angular"],
+        "html": ["ng-version", "ng-app", "ng-controller"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Next.js",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Next.js" }],
+        "meta": [],
+        "scripts": ["_next/static", "/_next/"],
+        "html": ["__NEXT_DATA__", "__next"],
+        "paths": ["/_next/"]
+      }
+    },
+    {
+      "name": "Nuxt.js",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Nuxt" }],
+        "meta": [],
+        "scripts": ["_nuxt/", "nuxt.js"],
+        "html": ["__NUXT__", "data-n-head"],
+        "paths": ["/_nuxt/"]
+      }
+    },
+    {
+      "name": "Gatsby",
+      "category": "Static Site Generator",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["gatsby-chunk-mapping", "/gatsby-"],
+        "html": ["gatsby-focus-wrapper", "___gatsby"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Svelte",
+      "category": "JavaScript Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["svelte", "_svelte"],
+        "html": ["svelte-", "__svelte"],
+        "paths": []
+      }
+    },
+    {
+      "name": "jQuery",
+      "category": "JavaScript Library",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["jquery.js", "jquery.min.js", "jquery-", "code.jquery.com"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Bootstrap",
+      "category": "CSS Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["bootstrap.js", "bootstrap.min.js"],
+        "html": ["bootstrap.css", "bootstrap.min.css"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Tailwind CSS",
+      "category": "CSS Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["tailwind"],
+        "html": ["tailwind", "class=\"bg-", "class=\"text-", "class=\"flex"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Google Analytics",
+      "category": "Analytics",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["google-analytics.com/analytics.js", "gtag/js", "ga.js", "google-analytics.com/ga.js"],
+        "html": ["GoogleAnalyticsObject", "_gaq", "gtag("],
+        "paths": []
+      }
+    },
+    {
+      "name": "Google Tag Manager",
+      "category": "Tag Management",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["googletagmanager.com/gtm.js", "gtm.js"],
+        "html": ["GTM-", "googletagmanager.com"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Facebook Pixel",
+      "category": "Analytics",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["connect.facebook.net", "fbevents.js"],
+        "html": ["fbq(", "facebook-pixel", "_fbq"],
+        "paths": []
+      }
+    },
+    {
+      "name": "HubSpot",
+      "category": "CRM/Marketing",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["js.hs-scripts.com", "js.hubspot.com", "hs-analytics.net"],
+        "html": ["hubspot", "hbspt.forms"],
+        "paths": ["/hs/"]
+      }
+    },
+    {
+      "name": "Mailchimp",
+      "category": "Email Marketing",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["list-manage.com", "mailchimp.com", "chimpstatic.com"],
+        "html": ["mc-embedded-subscribe", "mailchimp"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Cloudflare",
+      "category": "CDN/Security",
+      "checks": {
+        "headers": [{ "name": "cf-ray", "pattern": ".*" }, { "name": "server", "pattern": "cloudflare" }],
+        "meta": [],
+        "scripts": [],
+        "html": ["cloudflare"],
+        "paths": ["/cdn-cgi/"]
+      }
+    },
+    {
+      "name": "nginx",
+      "category": "Web Server",
+      "checks": {
+        "headers": [{ "name": "server", "pattern": "nginx" }],
+        "meta": [],
+        "scripts": [],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Apache",
+      "category": "Web Server",
+      "checks": {
+        "headers": [{ "name": "server", "pattern": "Apache" }],
+        "meta": [],
+        "scripts": [],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Vercel",
+      "category": "Hosting",
+      "checks": {
+        "headers": [{ "name": "x-vercel-id", "pattern": ".*" }, { "name": "server", "pattern": "Vercel" }],
+        "meta": [],
+        "scripts": ["vercel.app"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Netlify",
+      "category": "Hosting",
+      "checks": {
+        "headers": [{ "name": "x-netlify", "pattern": ".*" }, { "name": "server", "pattern": "Netlify" }],
+        "meta": [],
+        "scripts": ["netlify.com"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "PHP",
+      "category": "Backend",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "PHP" }],
+        "meta": [],
+        "scripts": [],
+        "html": [],
+        "paths": [".php"]
+      }
+    },
+    {
+      "name": "Django",
+      "category": "Backend",
+      "checks": {
+        "headers": [{ "name": "x-frame-options", "pattern": "SAMEORIGIN" }],
+        "meta": [],
+        "scripts": [],
+        "html": ["csrfmiddlewaretoken", "django"],
+        "paths": ["/admin/"]
+      }
+    },
+    {
+      "name": "Ruby on Rails",
+      "category": "Backend",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Phusion Passenger" }],
+        "meta": [],
+        "scripts": ["rails", "application.js"],
+        "html": ["csrf-token", "authenticity_token"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Node.js/Express",
+      "category": "Backend",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Express" }],
+        "meta": [],
+        "scripts": [],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Stripe",
+      "category": "Payment",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["js.stripe.com", "stripe.js"],
+        "html": ["stripe", "Stripe("],
+        "paths": []
+      }
+    },
+    {
+      "name": "Intercom",
+      "category": "Customer Support",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["widget.intercom.io", "intercomcdn.com"],
+        "html": ["intercom", "Intercom("],
+        "paths": []
+      }
+    },
+    {
+      "name": "Hotjar",
+      "category": "Analytics/Heatmaps",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["static.hotjar.com", "hotjar"],
+        "html": ["hjSetting", "_hjSettings"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Drupal",
+      "category": "CMS",
+      "checks": {
+        "headers": [{ "name": "x-generator", "pattern": "Drupal" }],
+        "meta": [{ "name": "generator", "pattern": "Drupal" }],
+        "scripts": ["drupal.js", "/sites/default/files/"],
+        "html": ["drupal", "Drupal.settings"],
+        "paths": ["/sites/default/", "/node/"]
+      }
+    },
+    {
+      "name": "Joomla",
+      "category": "CMS",
+      "checks": {
+        "headers": [],
+        "meta": [{ "name": "generator", "pattern": "Joomla" }],
+        "scripts": ["joomla", "/media/system/js/"],
+        "html": ["joomla"],
+        "paths": ["/administrator/"]
+      }
+    },
+    {
+      "name": "Magento",
+      "category": "E-commerce",
+      "checks": {
+        "headers": [{ "name": "x-magento-cache-control", "pattern": ".*" }],
+        "meta": [],
+        "scripts": ["mage/", "Magento_"],
+        "html": ["MAGE_URLS", "mage-init"],
+        "paths": ["/catalog/product/", "/checkout/"]
+      }
+    }
+  ]
+}
