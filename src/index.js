@@ -159,9 +159,11 @@ program
 
 program
   .command('profile <siren-or-name>')
-  .description('M&A due diligence report for a French company (requires Pro license)')
+  .description('Deep company profile — due diligence report (requires Pro license)')
   .option('--preview', 'Run limited preview: company identity + last year financials only')
   .option('--ai', 'Generate an AI-powered due diligence summary (requires AI API key)')
+  .option('--format <type>', 'Output format: terminal (default) or pdf')
+  .option('--output <path>', 'Output file path for PDF')
   .action(async (sirenOrName, options) => {
     await runMA(sirenOrName, options);
   });

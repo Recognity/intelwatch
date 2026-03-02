@@ -5,6 +5,7 @@ import { searchPressMentions } from '../scrapers/brave-search.js';
 import { analyzeSite } from '../scrapers/site-analyzer.js';
 import { callAI, hasAIKey } from '../ai/client.js';
 import { header, section, warn, error } from '../utils/display.js';
+import { generatePDF } from '@recognity/pdf-report';
 
 const LICENSE_URL = 'https://recognity.fr/tools/intelwatch';
 
@@ -215,11 +216,13 @@ export async function runMA(sirenOrName, options) {
   }
 
   // ── Press & mentions ───────────────────────────────────────────────────────
+  let pressResults = [];
   if (identity.name) {
     section('  📣 Presse & réputation');
     console.log(chalk.gray(`  Searching mentions for "${identity.name}"...`));
     try {
       const press = await searchPressMentions(identity.name);
+      pressResults = press.mentions || [];
       if (press.mentionCount > 0) {
         const bd = press.mentions.reduce((acc, m) => {
           const k = /positive/.test(m.sentiment) ? 'positive'
@@ -296,6 +299,74 @@ Rédige une synthèse en 5 points : 1) Profil, 2) Gouvernance & actionnariat, 3)
       } catch (e) {
         warn(`     AI summary failed: ${e.message}`);
       }
+    }
+  }
+
+  // ── PDF export ──────────────────────────────────────────────────────────────
+  if (options.format === 'pdf') {
+    const outputPath = options.output || `profile-${siren}.pdf`;
+    const fmtEuro = (n) => {
+      if (n == null) return '—';
+      const abs = Math.abs(n);
+      const sign = n < 0 ? '-' : '';
+      if (abs >= 1e9) return `${sign}${(abs/1e9).toFixed(2)}B€`;
+      if (abs >= 1e6) return `${sign}${(abs/1e6).toFixed(1)}M€`;
+      if (abs >= 1e3) return `${sign}${Math.round(abs/1e3)}K€`;
+      return `${sign}${abs}€`;
+    };
+
+    const pressMentions = [];
+    if (pressResults?.length) {
+      pressResults.forEach(m => {
+        pressMentions.push({ title: m.title || '', source: m.source || '', sentiment: m.sentiment || 'neutral' });
+      });
+    }
+
+    const pdfData = {
+      aiSummary: null, // filled below if AI was used
+      competitors: [{
+        name: identity.name || siren,
+        url: identity.website || 'N/A',
+        tech: [identity.formeJuridique, identity.nafLabel, identity.nafCode].filter(Boolean),
+        social: {},
+        pappers: {
+          siren: identity.siren,
+          forme: identity.formeJuridique,
+          creation: identity.dateCreation,
+          naf: identity.nafCode ? identity.nafCode + ' — ' + identity.nafLabel : null,
+          ca: financialHistory?.[0]?.ca != null ? fmtEuro(financialHistory[0].ca) : 'N/A',
+          effectifs: identity.effectifs || 'N/A',
+          dirigeants: dirigeants?.map(d => d.nom || d.denomination || '?').slice(0, 5) || [],
+        },
+        press: pressMentions.length ? {
+          total: pressMentions.length,
+          positive: pressMentions.filter(m => m.sentiment === 'positive').length,
+          neutral: pressMentions.filter(m => m.sentiment === 'neutral').length,
+          negative: pressMentions.filter(m => m.sentiment === 'negative').length,
+          mentions: pressMentions.slice(0, 15),
+        } : undefined,
+        strengths: [],
+        weaknesses: [],
+        summary: `${identity.name || siren} — ${identity.formeJuridique || ''}, ${identity.nafLabel || ''}. Created ${identity.dateCreation || '?'}. ${financialHistory?.length ? `Financial history: ${financialHistory.length} years available.` : 'No financial data available.'}`,
+      }]
+    };
+
+    try {
+      await generatePDF({
+        type: 'intel-report',
+        title: `Deep Profile — ${identity.name || siren}`,
+        subtitle: `Company due diligence report · ${new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+        output: outputPath,
+        branding: {
+          company: 'Recognity',
+          footer: 'Powered by Recognity · recognity.fr',
+          colors: { primary: '#0a0a0a', accent: '#c8a961' },
+        },
+        data: pdfData,
+      });
+      console.log(chalk.green(`\n  ✅ PDF report saved to ${outputPath}\n`));
+    } catch (e) {
+      warn(`  PDF generation failed: ${e.message}`);
     }
   }
 

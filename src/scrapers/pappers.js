@@ -27,7 +27,7 @@ export async function pappersSearchByName(name, options = {}) {
       },
       timeout: 10000,
     });
-    return { results: resp.data.resultats || [], error: null };
+    return { results: resp.data.resultats || resp.data.entreprises || [], error: null };
   } catch (err) {
     return { results: [], error: err.message };
   }

@@ -12,6 +12,7 @@
     "start": "node bin/intelwatch.js"
   },
   "dependencies": {
+    "@recognity/pdf-report": "file:../shared-pdf",
     "axios": "^1.7.9",
     "chalk": "^5.3.0",
     "cheerio": "^1.0.0",
