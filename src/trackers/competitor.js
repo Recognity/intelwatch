@@ -1,5 +1,6 @@
 import { analyzeSite, analyzeKeyPages } from '../scrapers/site-analyzer.js';
 import { scrapeNewsMentions } from '../scrapers/google-news.js';
+import { searchPressMentions, extractRatingsFromResults } from '../scrapers/brave-search.js';
 import { diffTechStacks } from '../utils/tech-detect.js';
 import { fetch } from '../utils/fetcher.js';
 import { load } from '../utils/parser.js';
@@ -21,80 +22,63 @@ export async function runCompetitorCheck(tracker) {
   let reputation = { reviews: [], avgRating: null, platforms: [] };
 
   try {
-    // Search Google News for the brand
-    const newsData = await scrapeNewsMentions(brandName, { lang: 'fr' });
-    const pressArticles = (newsData.mentions || []).filter(m => 
-      m.category === 'press' || m.source === 'google_news'
-    );
-    const forumMentions = (newsData.mentions || []).filter(m => 
-      m.category === 'forum' || m.category === 'social'
-    );
+    // Try Brave Search API first (reliable, no rate limiting)
+    const braveData = await searchPressMentions(brandName);
     
-    press = {
-      articles: newsData.mentions.slice(0, 15).map(m => ({
+    if (!braveData.error && braveData.mentions.length > 0) {
+      // Brave API worked
+      const allMentions = braveData.mentions;
+      const pressArticles = allMentions.filter(m => m.category === 'press' || m.source === 'news');
+      const forumMentions = allMentions.filter(m => m.category === 'forum' || m.category === 'social');
+      const reviewMentions = allMentions.filter(m => m.category === 'review' || m.source === 'review');
+
+      press = {
+        articles: allMentions.filter(m => m.source !== 'review').slice(0, 15).map(m => ({
+          title: m.title,
+          url: m.url,
+          domain: m.domain,
+          sentiment: m.sentiment,
+          category: m.category,
+          source: m.source,
+          age: m.age,
+        })),
+        totalCount: allMentions.filter(m => m.source !== 'review').length,
+        pressCount: pressArticles.length,
+        forumCount: forumMentions.length,
+        sentimentBreakdown: {
+          positive: allMentions.filter(m => m.sentiment === 'positive' || m.sentiment === 'slightly_positive').length,
+          neutral: allMentions.filter(m => m.sentiment === 'neutral').length,
+          negative: allMentions.filter(m => m.sentiment === 'negative' || m.sentiment === 'slightly_negative').length,
+        },
+      };
+
+      // Extract ratings from review results
+      reputation.platforms = extractRatingsFromResults(reviewMentions);
+      reputation.reviews = reviewMentions.slice(0, 5).map(m => ({
         title: m.title,
         url: m.url,
         domain: m.domain,
         sentiment: m.sentiment,
-        category: m.category,
-        source: m.source,
-      })),
-      totalCount: newsData.mentionCount,
-      pressCount: pressArticles.length,
-      forumCount: forumMentions.length,
-      sentimentBreakdown: {
-        positive: newsData.mentions.filter(m => m.sentiment === 'positive' || m.sentiment === 'slightly_positive').length,
-        neutral: newsData.mentions.filter(m => m.sentiment === 'neutral').length,
-        negative: newsData.mentions.filter(m => m.sentiment === 'negative' || m.sentiment === 'slightly_negative').length,
-      },
-    };
-  } catch {}
-
-  // Search for reviews on major platforms
-  try {
-    const reviewPlatforms = [
-      { name: 'Trustpilot', searchUrl: `https://www.google.com/search?q=site:trustpilot.com+"${brandName}"` },
-      { name: 'Google Avis', searchUrl: `https://www.google.com/search?q="${brandName}"+avis+clients` },
-    ];
-    
-    for (const platform of reviewPlatforms) {
-      try {
-        await new Promise(r => setTimeout(r, 1500));
-        const resp = await fetch(platform.searchUrl, { retries: 1, delay: 1000 });
-        if (resp.status === 200) {
-          const $ = load(resp.data);
-          const text = $.text().toLowerCase();
-          
-          // Try to extract rating patterns
-          const ratingMatch = text.match(/(\d[.,]\d)\s*(?:\/\s*5|sur\s*5|out of 5|stars?|étoiles?)/);
-          const reviewCountMatch = text.match(/(\d[\d\s,.]*)\s*(?:avis|reviews?|évaluations?|notes?)/);
-          
-          if (ratingMatch || reviewCountMatch) {
-            reputation.platforms.push({
-              name: platform.name,
-              rating: ratingMatch ? ratingMatch[1].replace(',', '.') : null,
-              reviewCount: reviewCountMatch ? reviewCountMatch[1].replace(/\s/g, '') : null,
-            });
-          }
-
-          // Extract review snippets
-          $('a[href]').each((_, el) => {
-            const href = $(el).attr('href') || '';
-            if (/trustpilot|avis|review/.test(href) && href.startsWith('http')) {
-              const title = $(el).text().trim();
-              if (title.length > 15 && reputation.reviews.length < 5) {
-                const sentiment = analyzeSentiment(title);
-                reputation.reviews.push({
-                  title: title.substring(0, 150),
-                  url: href,
-                  platform: platform.name,
-                  sentiment: sentiment.label,
-                });
-              }
-            }
-          });
-        }
-      } catch {}
+      }));
+    } else {
+      // Fallback to Google scraping
+      const newsData = await scrapeNewsMentions(brandName, { lang: 'fr' });
+      if (newsData.mentions.length > 0) {
+        press = {
+          articles: newsData.mentions.slice(0, 15).map(m => ({
+            title: m.title, url: m.url, domain: m.domain,
+            sentiment: m.sentiment, category: m.category, source: m.source,
+          })),
+          totalCount: newsData.mentionCount,
+          pressCount: newsData.mentions.filter(m => m.category === 'press').length,
+          forumCount: newsData.mentions.filter(m => m.category === 'forum' || m.category === 'social').length,
+          sentimentBreakdown: {
+            positive: newsData.mentions.filter(m => m.sentiment === 'positive' || m.sentiment === 'slightly_positive').length,
+            neutral: newsData.mentions.filter(m => m.sentiment === 'neutral').length,
+            negative: newsData.mentions.filter(m => m.sentiment === 'negative' || m.sentiment === 'slightly_negative').length,
+          },
+        };
+      }
     }
   } catch {}
 

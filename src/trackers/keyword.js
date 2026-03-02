@@ -1,19 +1,40 @@
 import { scrapeSerp } from '../scrapers/google.js';
+import { searchKeywordRankings } from '../scrapers/brave-search.js';
 
 export async function runKeywordCheck(tracker) {
   const { keyword } = tracker;
 
-  const serpData = await scrapeSerp(keyword, { num: 20 });
+  // Try Brave Search API first
+  let results = [];
+  let error = null;
+
+  try {
+    const braveResults = await searchKeywordRankings(keyword);
+    if (braveResults.length > 0) {
+      results = braveResults.map(r => ({
+        ...r,
+        isFeaturedSnippet: false,
+      }));
+    }
+  } catch (e) {
+    // Brave failed, try Google fallback
+  }
+
+  if (results.length === 0) {
+    const serpData = await scrapeSerp(keyword, { num: 20 });
+    results = serpData.results || [];
+    error = serpData.error;
+  }
 
   return {
     type: 'keyword',
     trackerId: tracker.id,
     keyword,
     checkedAt: new Date().toISOString(),
-    results: serpData.results,
-    resultCount: serpData.resultCount,
-    error: serpData.error,
-    featuredSnippet: serpData.results.find(r => r.isFeaturedSnippet) || null,
+    results,
+    resultCount: results.length,
+    error,
+    featuredSnippet: results.find(r => r.isFeaturedSnippet) || null,
   };
 }
 

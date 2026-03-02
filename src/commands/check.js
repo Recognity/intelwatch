@@ -168,21 +168,23 @@ export async function runCheck(options) {
         // Reputation / reviews
         if (snapshot.reputation) {
           const r = snapshot.reputation;
-          if (r.platforms?.length > 0) {
-            for (const plat of r.platforms) {
-              const ratingStr = plat.rating ? `${plat.rating}/5` : 'n/a';
-              const countStr = plat.reviewCount ? `(${plat.reviewCount} avis)` : '';
-              console.log(chalk.yellow(`  ⭐ ${plat.name}: ${ratingStr} ${countStr}`));
-            }
+          const validPlatforms = (r.platforms || []).filter(p => p.rating);
+          if (validPlatforms.length > 0) {
+            const platStr = validPlatforms.map(p => {
+              const countStr = p.reviewCount ? ` (${p.reviewCount} avis)` : '';
+              return `${p.name}: ${p.rating}/5${countStr}`;
+            }).join(' | ');
+            console.log(chalk.yellow(`  ⭐ ${platStr}`));
           }
-          if (r.reviews?.length > 0) {
-            for (const rev of r.reviews.slice(0, 3)) {
+          const validReviews = (r.reviews || []).filter(rev => rev.title && rev.title.length > 10);
+          if (validReviews.length > 0) {
+            for (const rev of validReviews.slice(0, 3)) {
               const sentEmoji = rev.sentiment === 'positive' || rev.sentiment === 'slightly_positive' ? '👍' : '👎';
               console.log(chalk.gray(`    ${sentEmoji} ${rev.title.substring(0, 80)}`));
             }
           }
-          if (!r.platforms?.length && !r.reviews?.length) {
-            console.log(chalk.gray(`  ⭐ Reputation: no reviews found`));
+          if (!validPlatforms.length && !validReviews.length) {
+            console.log(chalk.gray(`  ⭐ Reputation: no ratings found`));
           }
         }
       }
