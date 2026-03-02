@@ -8,6 +8,8 @@ import { runHistory } from './commands/history.js';
 import { runCompare } from './commands/compare.js';
 import { setupNotifications } from './commands/notify.js';
 import { listTrackers, removeTrackerCmd } from './commands/list.js';
+import { runAISummary } from './commands/ai-summary.js';
+import { runPitch } from './commands/pitch.js';
 
 const program = new Command();
 
@@ -119,6 +121,28 @@ program
   .description('Side-by-side comparison of two competitor trackers')
   .action((id1, id2) => {
     runCompare(id1, id2);
+  });
+
+// ─── ai-summary ───────────────────────────────────────────────────────────────
+
+program
+  .command('ai-summary')
+  .description('Generate an AI-powered intelligence brief for all competitor trackers')
+  .option('--tracker <id>', 'Only summarize this specific tracker')
+  .action(async (options) => {
+    await runAISummary(options);
+  });
+
+// ─── pitch ────────────────────────────────────────────────────────────────────
+
+program
+  .command('pitch <tracker-id>')
+  .description('Generate a sales-ready competitive pitch document')
+  .option('--for <your-site>', 'Your product or site name', 'your product')
+  .option('--format <format>', 'Output format: md, html', 'md')
+  .option('--output <file>', 'Save pitch to file')
+  .action(async (trackerId, options) => {
+    await runPitch(trackerId, options);
   });
 
 // ─── notify ───────────────────────────────────────────────────────────────────

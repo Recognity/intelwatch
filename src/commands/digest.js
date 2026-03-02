@@ -3,7 +3,8 @@ import { loadTrackers, loadLatestSnapshot, listSnapshots, loadSnapshot } from '.
 import { diffCompetitorSnapshots } from '../trackers/competitor.js';
 import { diffKeywordSnapshots } from '../trackers/keyword.js';
 import { diffBrandSnapshots } from '../trackers/brand.js';
-import { createTable, header, trackerTypeIcon, warn } from '../utils/display.js';
+import { createTable, header, section, trackerTypeIcon, warn } from '../utils/display.js';
+import { hasAIKey, callAI, getAIConfig } from '../ai/client.js';
 
 export async function runDigest() {
   const trackers = loadTrackers();
@@ -75,4 +76,81 @@ export async function runDigest() {
   }
 
   console.log(chalk.gray('\nRun `intelwatch report --format html` for a full report.'));
+
+  // ── AI enhancement (optional) ─────────────────────────────────────────────
+  if (hasAIKey()) {
+    await runAIDigestSummary(trackers);
+  } else {
+    console.log(chalk.gray('\nTip: set OPENAI_API_KEY or ANTHROPIC_API_KEY for AI-powered digest analysis.'));
+  }
+}
+
+async function runAIDigestSummary(trackers) {
+  const competitors = trackers.filter(t => t.type === 'competitor');
+  if (competitors.length === 0) return;
+
+  const aiConfig = getAIConfig();
+  section('\n🤖 AI Digest Analysis');
+  console.log(chalk.gray(`Provider: ${aiConfig.provider} / ${aiConfig.model}\n`));
+
+  // Build a compact snapshot of all competitors for a combined analysis
+  const competitorData = [];
+  for (const tracker of competitors) {
+    const snapshots = listSnapshots(tracker.id);
+    if (snapshots.length === 0) continue;
+
+    const latest = loadSnapshot(snapshots[snapshots.length - 1].filepath);
+    const prev = snapshots.length > 1 ? loadSnapshot(snapshots[snapshots.length - 2].filepath) : null;
+    const changes = diffCompetitorSnapshots(prev, latest);
+
+    competitorData.push({ tracker, latest, changes });
+  }
+
+  if (competitorData.length === 0) {
+    console.log(chalk.gray('  No competitor snapshots available for AI analysis.\n'));
+    return;
+  }
+
+  try {
+    const analysis = await generateDigestAnalysis(competitorData);
+    console.log(analysis + '\n');
+  } catch (err) {
+    console.log(chalk.red(`  AI error: ${err.message}\n`));
+  }
+}
+
+async function generateDigestAnalysis(competitorData) {
+  const systemPrompt =
+    'You are a competitive intelligence analyst producing a concise weekly digest. ' +
+    'Be specific, actionable, and brief. Write in plain English prose. ' +
+    'Focus on what changed and what it means strategically.';
+
+  const summaries = competitorData.map(({ tracker, latest, changes }) => {
+    const name = tracker.name || tracker.url;
+    const changesText = changes.length > 0
+      ? changes.slice(0, 5).map(c => `${c.type}: ${c.field} — ${c.value}`).join('; ')
+      : 'no changes detected';
+
+    const pressNote = latest.press?.totalCount
+      ? ` Press: ${latest.press.totalCount} mentions (${latest.press.sentimentBreakdown?.negative || 0} negative).`
+      : '';
+
+    const jobsNote = latest.jobs?.estimatedOpenings
+      ? ` Hiring: ~${latest.jobs.estimatedOpenings} openings.`
+      : '';
+
+    return `${name}: changes=[${changesText}]${pressNote}${jobsNote}`;
+  }).join('\n');
+
+  const userPrompt =
+    `Weekly competitive digest for ${competitorData.length} competitor(s):\n\n` +
+    `${summaries}\n\n` +
+    `Provide:\n` +
+    `1. **Overall Assessment** (2-3 sentences): What's the most important competitive development this week?\n` +
+    `2. **Threat Levels**: For each competitor, one line: "[Name]: [LOW/MEDIUM/HIGH] — [reason]"\n` +
+    `3. **Recommended Actions**: 2-3 bullet points of what to do right now\n` +
+    `4. **Team One-liner**: One sentence to forward to your team summarizing the week\n\n` +
+    `Be concise and specific.`;
+
+  return await callAI(systemPrompt, userPrompt, { maxTokens: 600 });
 }
