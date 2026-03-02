@@ -19,7 +19,7 @@ export function detectTechnologies(html, headers = {}, url = '') {
 
   const lowerHtml = html.toLowerCase();
   const lowerHeaders = Object.fromEntries(
-    Object.entries(headers).map(([k, v]) => [k.toLowerCase(), (v || '').toLowerCase()])
+    Object.entries(headers).map(([k, v]) => [k.toLowerCase(), (Array.isArray(v) ? v.join(', ') : String(v || '')).toLowerCase()])
   );
 
   for (const tech of techs) {
