@@ -1024,7 +1024,7 @@ OBLIGATOIRE :
                   const monthsConsolidated = 12 - maMonth + 1;
                   const partialCa = Math.round(subCa * (monthsConsolidated / 12));
                   externalCa += partialCa;
-                  const srcLabel = caSource !== 'registry' ? ' ⚡press' : '';
+                  const srcLabel = caSource !== 'registry' ? ' [press]' : '';
                   externalEntities.push(`${subName} (~${fmtM(partialCa)}${srcLabel})`);
                 }
               }
