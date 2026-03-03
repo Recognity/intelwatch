@@ -997,13 +997,35 @@ OBLIGATOIRE :
                   const maWords = maTarget.split(/\s+/).filter(w => w.length > 2);
                   return maWords.some(w => sName.includes(w)) || sName.includes(maTarget);
                 });
-                if (sub?.ca) {
-                  // If acquisition mid-year, estimate partial year consolidation
+                // Get CA: from subsidiary data, or from press estimates for stale/missing data
+                let subCa = sub?.ca || 0;
+                let subName = sub?.name || ma.target;
+                let caSource = 'registry';
+                const subYear = sub?.annee || 0;
+                const currentYear = new Date().getFullYear();
+
+                // Press-based revenue estimates for entities with stale or no Pappers data
+                // These are extracted from press articles via Brave Search (see ROADMAP-PREMIUM.md)
+                const pressEstimates = {
+                  'zalis': { ca: 15e6, source: 'endrix.com (Endrix+Zalis=60M€ 2023)' },
+                  'exelmans': { ca: 38e6, source: 'fusacq.com (Endrix+Exelmans=100M€, 850 collabs)' },
+                };
+                if (!subCa || (subYear && subYear < currentYear - 2)) {
+                  const pressKey = Object.keys(pressEstimates).find(k => maTarget.includes(k));
+                  if (pressKey) {
+                    subCa = pressEstimates[pressKey].ca;
+                    caSource = pressEstimates[pressKey].source;
+                    subName = ma.target;
+                  }
+                }
+
+                if (subCa > 0) {
                   const maMonth = parseInt((ma.date || '').substring(5, 7)) || 6;
                   const monthsConsolidated = 12 - maMonth + 1;
-                  const partialCa = Math.round(sub.ca * (monthsConsolidated / 12));
+                  const partialCa = Math.round(subCa * (monthsConsolidated / 12));
                   externalCa += partialCa;
-                  externalEntities.push(`${sub.name} (~${fmtM(partialCa)})`);
+                  const srcLabel = caSource !== 'registry' ? ' ⚡press' : '';
+                  externalEntities.push(`${subName} (~${fmtM(partialCa)}${srcLabel})`);
                 }
               }
             }
@@ -1017,7 +1039,7 @@ OBLIGATOIRE :
               fromRevenue: fmtM(prev.ca),
               toRevenue: fmtM(curr.ca),
               growthPct: (totalPct >= 0 ? '+' : '') + totalPct + '%',
-              organic: externalCa > 0 ? `+${organicPct}% (${fmtM(organicCa)})` : `+${totalPct}% (organic)`,
+              organic: externalCa > 0 ? `${organicCa >= 0 ? '+' : ''}${organicPct}% (${fmtM(organicCa)})` : `+${totalPct}% (organic)`,
               external: externalCa > 0 ? `+${externalPct}% (${fmtM(externalCa)})` : 'None identified',
               comment: externalEntities.length ? `Acq: ${externalEntities.join(', ')}` : null,
             });
