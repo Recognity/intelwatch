@@ -148,11 +148,24 @@ export async function searchPressMentions(brandName, options = {}) {
     }
   }
 
+  // ── Relevance filter: drop results that don't actually mention the brand ──
+  const brandLower = brandName.toLowerCase().trim();
+  const brandWords = brandLower.split(/\s+/);
+  const filtered = mentions.filter(m => {
+    const text = ((m.title || '') + ' ' + (m.snippet || '') + ' ' + (m.domain || '')).toLowerCase();
+    // Must contain the exact brand name OR all words of the brand
+    if (text.includes(brandLower)) return true;
+    if (brandWords.length > 1 && brandWords.every(w => text.includes(w))) return true;
+    // Fuzzy: allow 1 char difference for short names (e.g. "Endrix" vs "Endrick" should be EXCLUDED)
+    return false;
+  });
+
   return {
     brandName,
     checkedAt: new Date().toISOString(),
-    mentions,
-    mentionCount: mentions.length,
+    mentions: filtered,
+    mentionCount: filtered.length,
+    unfilteredCount: mentions.length,
     error: news.error || web.error || null,
   };
 }

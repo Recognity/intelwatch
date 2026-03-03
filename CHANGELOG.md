@@ -1,6 +1,27 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [1.1.2] - 2026-03-03
+
+### Added
+- **Financial KPIs / Valuation Metrics** — EBITDA, net debt, fonds propres, BFR, ROE, marge nette, capacité autofinancement from Pappers API
+- **Revenue Trend SVG chart** — inline bar chart in PDF, pure SVG, no external libs
+- **M&A History code-built** — regex extraction from articles, off-brand subs auto-injected, AI writes descriptions only (zero hallucinated dates)
+- **Group Structure organigramme** — shareholders → target → top 7 subsidiaries (branded + off-brand, sorted by CA)
+- **FLI code-built revenue target** — scans all articles for highest announced target, overrides AI
+- **Revenue Growth YoY all years** — code-built from consolidated finances (not just AI's single row)
+- **Stale financials auto-refresh** — Pappers API direct for subsidiaries with data > 2 years old
+- **Stale year warning** — red ⚠️ badge on subsidiaries with outdated financial data
+- **Off-brand subsidiary detection** — branded vs acquired split in AI prompt + organigramme
+- **Article scraping for M&A depth** — top 5 articles (2000 chars each) injected into AI prompt
+- **Key date extraction** — regex code-side extracts dates from articles, authoritative for M&A timeline
+
+### Fixed
+- Revenue chart top labels cropped (added padding)
+- Forward-Looking Indicators empty table (code-built override when AI misses data)
+- Stale financials routine now uses Pappers API instead of Brave (more reliable)
+- Subsidiary filter in organigramme now includes off-brand entities
+
 
 ## [1.1.0] — 2026-03-02 (in progress)
 
