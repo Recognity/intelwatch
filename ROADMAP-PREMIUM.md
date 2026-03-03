@@ -98,3 +98,35 @@
 - Journalistes investigation
 - Assureurs (risk assessment)
 - CFO / DAF (veille concurrentielle)
+
+## Sprint Notes — Brave Revenue Enrichment (POC data)
+
+### Exelmans Advisory (SIREN 482026739)
+- Pappers CA: 9.1M€ (2018) — **stale**
+- **fusacq.com**: "Endrix + Exelmans = 850 collaborateurs, CA consolidé 100M€" → Exelmans ≈ 38M€
+- **rezoactif.com**: 100 pros × 325K€/collab = ~32.5M€
+- Acquired: 2025-05 → 8 mois consolidés 2025 → ~25M€ external growth
+- Source: `https://www.fusacq.com/buzz/endrix-et-exelmans-se-rapprochent-pour-devenir-le-leader-francais-du-conseil-financier-a253390_fr_`
+
+### Zalis (not in Pappers subsidiaries)
+- No SIREN parent link in Pappers
+- **endrix.com**: "Endrix + Zalis = 60M€ de CA en 2023"
+- **lemondeduchiffre.fr**: confirms 60M€ combined, target 100M€
+- Endrix seul 2022 = 44.6M€ → Zalis ≈ 13-15M€
+- Acquired: 2023 → full year consolidation → ~15M€ external growth for 2022→2023
+- Source: `https://www.endrix.com/blog/endrix-zalis-rapprochement-conseil-haut-gamme/`
+
+### Revised Growth Split (code-built + press)
+- 2021→2022: +12.0% — 100% organic (no acquisition identified)
+- 2022→2023: +30.4% — Organic: ~-1.5% / External: ~+32% (Zalis ~15M€ + Greece 133 ~5.3M€)
+- 2023→2024: +6.6% — 100% organic (no acquisition in 2024)
+- 2024→2025 (projected): Exelmans ~25M€ external (8mo) + organic ~6% → ~89-92M€
+
+### Implementation Notes
+- Stale financials Brave enrichment should:
+  1. For each off-brand sub with CA > 2 years old: Brave search `"{name}" chiffre affaires OR revenue OR CA`
+  2. Also search `"{name}" "{parent_name}" acquisition revenue` for press-reported figures
+  3. Extract revenue from snippets: `(\d+)\s*M€` or `(\d+)\s*millions`
+  4. Store as `stale.pressEstimate` with `stale.pressSource` URL
+  5. Use press estimate for growth calc when Pappers CA is stale
+- For entities NOT in Pappers subsidiaries (like Zalis): check M&A timeline targets against press articles

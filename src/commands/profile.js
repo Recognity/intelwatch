@@ -537,6 +537,7 @@ export async function runMA(sirenOrName, options) {
     s => !s.name?.toLowerCase().includes(parentBrandForMa)
   );
   const codeBuiltMaHistory = buildMaHistoryFromCode(scrapedMaContent, offBrandSubsForMa);
+  if (codeBuiltMaHistory.length) console.log(chalk.gray(`  📋 M&A timeline (${codeBuiltMaHistory.length} entries): ${codeBuiltMaHistory.map(e => `${e.target?.substring(0,15)} [${e.date}]`).join(', ')}`));
 
   // ── AI Analysis ───────────────────────────────────────────────────────────
   let aiAnalysis = null;
@@ -979,23 +980,56 @@ OBLIGATOIRE :
             if (!prev.ca || !curr.ca) continue;
             const totalPct = ((curr.ca - prev.ca) / prev.ca * 100).toFixed(1);
             const fmtM = (n) => (n / 1e6).toFixed(1) + 'M€';
+            // Calculate organic vs external from M&A timeline + subsidiary CA
+            let externalCa = 0;
+            const externalEntities = [];
+            const targetYear = curr.annee;
+            if (codeBuiltMaHistory?.length && subsidiariesData?.length) {
+              for (const ma of codeBuiltMaHistory) {
+                // Extract year from M&A date (YYYY or YYYY-MM)
+                const maYear = parseInt((ma.date || '').substring(0, 4));
+                if (maYear !== targetYear) continue;
+                if (ma.type === 'capital_increase' || ma.type === 'fundraising') continue;
+                // Find matching subsidiary CA
+                const maTarget = (ma.target || '').toLowerCase();
+                const sub = subsidiariesData.find(s => {
+                  const sName = (s.name || '').toLowerCase();
+                  const maWords = maTarget.split(/\s+/).filter(w => w.length > 2);
+                  return maWords.some(w => sName.includes(w)) || sName.includes(maTarget);
+                });
+                if (sub?.ca) {
+                  // If acquisition mid-year, estimate partial year consolidation
+                  const maMonth = parseInt((ma.date || '').substring(5, 7)) || 6;
+                  const monthsConsolidated = 12 - maMonth + 1;
+                  const partialCa = Math.round(sub.ca * (monthsConsolidated / 12));
+                  externalCa += partialCa;
+                  externalEntities.push(`${sub.name} (~${fmtM(partialCa)})`);
+                }
+              }
+            }
+            const totalDelta = curr.ca - prev.ca;
+            const organicCa = totalDelta - externalCa;
+            const organicPct = prev.ca > 0 ? ((organicCa / prev.ca) * 100).toFixed(1) : '?';
+            const externalPct = prev.ca > 0 ? ((externalCa / prev.ca) * 100).toFixed(1) : '?';
+
             rows.push({
               period: `${prev.annee} → ${curr.annee}`,
               fromRevenue: fmtM(prev.ca),
               toRevenue: fmtM(curr.ca),
               growthPct: (totalPct >= 0 ? '+' : '') + totalPct + '%',
-              organic: '—',
-              external: '—',
-              comment: null,
+              organic: externalCa > 0 ? `+${organicPct}% (${fmtM(organicCa)})` : `+${totalPct}% (organic)`,
+              external: externalCa > 0 ? `+${externalPct}% (${fmtM(externalCa)})` : 'None identified',
+              comment: externalEntities.length ? `Acq: ${externalEntities.join(', ')}` : null,
             });
           }
           // Merge AI organic/external estimates for matching periods if available
+          // Merge AI estimates ONLY where code-built has no data (code > AI)
           for (const aiRow of (ga.consolidatedGrowth || [])) {
             const match = rows.find(r => r.period === aiRow.period || r.period.includes(aiRow.period?.split('→')[0]?.trim()));
             if (match) {
-              if (aiRow.organic) match.organic = aiRow.organic;
-              if (aiRow.external) match.external = aiRow.external;
-              if (aiRow.comment) match.comment = aiRow.comment;
+              if (aiRow.organic && match.organic === '—') match.organic = aiRow.organic;
+              if (aiRow.external && match.external === '—') match.external = aiRow.external;
+              if (aiRow.comment && !match.comment) match.comment = aiRow.comment;
             }
           }
           ga.consolidatedGrowth = rows;
