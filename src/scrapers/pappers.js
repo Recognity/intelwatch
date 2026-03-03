@@ -128,14 +128,31 @@ export async function pappersGetFullDossier(siren) {
 
     // BODACC publications — last 50 (captures M&A activity)
     const bodacc = (d.publications_bodacc || []).slice(0, 50).map(p => {
+      // Build rich description from all available fields
+      const parts = [];
+      if (p.description && p.description !== p.type) parts.push(p.description);
+      if (p.administration) parts.push(p.administration);
+      if (p.capital) parts.push(`Capital: ${(p.capital / 1e3).toFixed(0)}K€`);
+      if (p.date_cloture) parts.push(`Clôture: ${p.date_cloture}`);
+      if (p.type_depot) parts.push(p.type_depot);
+      if (p.activite) parts.push(p.activite);
       const actes = (p.acte?.actes_publies || []).map(a => a.type_acte).filter(Boolean);
+      if (actes.length) parts.push(actes.join(', '));
+      // Build BODACC URL: format id:{letter}{parution}{annonce}
+      const bodaccLetter = p.bodacc || (p.type?.toLowerCase().includes('comptes') ? 'C' : 'B');
+      const bodaccUrl = p.numero_parution && p.numero_annonce
+        ? `https://www.bodacc.fr/pages/annonces-commerciales-detail/?q.id=id:${bodaccLetter}${p.numero_parution}${p.numero_annonce}`
+        : null;
       return {
         date: p.date,
         type: p.type,
-        tribunal: p.tribunal || null,
+        tribunal: p.greffe || p.tribunal || null,
         numero: p.numero_annonce || null,
-        description: actes.length ? actes.join(', ') : p.type || null,
-        details: p.acte?.descriptif || p.acte?.capital || null,
+        description: parts.length ? parts.join('. ') : p.type || null,
+        details: p.acte?.descriptif || null,
+        url: bodaccUrl,
+        capital: p.capital || null,
+        rcs: p.rcs || null,
       };
     });
 

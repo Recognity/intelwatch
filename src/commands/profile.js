@@ -1060,6 +1060,34 @@ OBLIGATOIRE :
             fl.projectedGrowth = `+${growth}% → ~${projected}M€ projected ${(last.annee || 2024) + 1}`;
           }
         }
+        // Inject lastDeposited from consolidated finances
+        if (consolidatedFinances?.length > 0) {
+          const last = consolidatedFinances[0];
+          if (last.ca) {
+            fl.lastDeposited = {
+              amount: (last.ca / 1e6).toFixed(1) + 'M€',
+              year: last.annee || '?',
+              raw: last.ca,
+            };
+          }
+        }
+        // Compute real delta between deposited and announced
+        if (fl.lastDeposited?.raw && fl.announcedRevenue?.amount) {
+          const announcedVal = parseInt((fl.announcedRevenue.amount || '0').replace(/[^\d]/g, '')) || 0;
+          const depositedVal = fl.lastDeposited.raw / 1e6;
+          if (announcedVal > 0 && depositedVal > 0) {
+            const pct = ((announcedVal - depositedVal) / depositedVal * 100).toFixed(0);
+            const yearDiff = (fl.announcedRevenue.year || 2030) - (fl.lastDeposited.year || 2024);
+            fl.delta = `+${pct}% (x${(announcedVal / depositedVal).toFixed(1)}) over ${yearDiff > 0 ? yearDiff + 'y' : '?'}`;
+          }
+        }
+        // Fix AI commentary if it mentions wrong revenue target
+        if (fl.aiComment && fl.announcedRevenue?.amount && fl.lastDeposited?.amount) {
+          const announced = fl.announcedRevenue.amount;
+          const deposited = fl.lastDeposited.amount;
+          const year = fl.announcedRevenue.year || '2030';
+          fl.aiComment = `Target revenue: ${announced} by ${year} (announced via press). Last deposited: ${deposited} (${fl.lastDeposited.year}). ${fl.delta ? 'Gap: ' + fl.delta + '.' : ''} ${fl.aiComment.replace(/\d{2,4}\s*M€?/gi, '').replace(/\s{2,}/g, ' ').trim().split('.').slice(-2).join('.').trim()}`;
+        }
         return fl;
       })(),
       competitors: [{
@@ -1157,6 +1185,7 @@ OBLIGATOIRE :
           date: b.date || '—',
           type: b.type || '—',
           description: b.description || '',
+          url: b.url || null,
         })),
         // Procédures collectives
         procedures: (proceduresCollectives || []).map(p => ({

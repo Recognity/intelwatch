@@ -1,6 +1,26 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [1.1.3] - 2026-03-03
+
+### Added
+- PDF redesign: intelligence cabinet style with SVG inline icons (18 monoline icons)
+- BODACC enriched descriptions (capital changes, governance details, filing types)
+- BODACC clickable links to bodacc.fr for each publication
+- FLI code-built revenue target override (picks highest announced figure from articles)
+- Revenue Growth YoY all years from consolidated finances (code-built)
+- Last Deposited vs Announced comparison in Forward-Looking Indicators
+- Stale financials auto-refresh via Pappers API direct
+
+### Fixed
+- Cover page header/footer overlap (disabled Puppeteer displayHeaderFooter)
+- Page margins increased for better readability
+- Page breaks: Subsidiaries and Directors tables start on new pages
+- BODACC URL format corrected (was 404, now uses correct bodacc.fr format)
+- FLI acquisitions with empty targets no longer shown
+- Revenue chart top labels no longer cropped
+- Group Structure organigramme includes off-brand subsidiaries
+
 ## [1.1.2] - 2026-03-03
 
 ### Added
