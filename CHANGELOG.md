@@ -1,6 +1,31 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [1.1.6] - 2026-03-04
+
+### Fixed
+- Chart label positioning: top labels no longer overlap bars
+- SVG chart renders full-width in PDF
+
+## [1.1.5] - 2026-03-03
+
+### Changed
+- Dual-zone financial chart: full-width rendering, revenue zone + income/EBITDA zone
+- KPI labels switched to English
+- Emoji cleanup throughout PDF (removed redundant decorators)
+
+### Added
+- Press revenue estimates: Brave Search enrichment for subsidiary financial data when Pappers data is stale
+
+## [1.1.4] - 2026-03-03
+
+### Added
+- **Financial Trend chart** — dual-zone SVG: revenue bars (top) + income & EBITDA bars (bottom)
+- **Organic vs external growth** — code-built yearly breakdown, compares consolidated CA growth with known acquisition dates
+- **Press revenue estimates** — cross-references press mentions for subsidiary revenue data
+- **Sign fix** — negative results display correctly in charts and tables
+
 ## [1.1.3] - 2026-03-03
 
 ### Added
