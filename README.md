@@ -1,174 +1,128 @@
 # intelwatch
 
-> Competitive intelligence from the terminal. Track competitors, keywords, and brand mentions — no expensive SaaS required.
+> **Zero friction. Full context.**
+> Competitive intelligence, M&A due diligence, and OSINT directly from your terminal.
 
-## Install
+![Intelwatch Mockup](https://recognity.odoo.com/web/image/website/1/logo?unique=1)
+
+**Intelwatch** bridges the gap between hacker OSINT and B2B Sales/M&A data. It executes complex financial data aggregation, technology stack detection, and AI-powered due diligence in seconds. No dashboards, no bloated UI. Just pure data.
+
+## Installation
 
 ```bash
 npm install -g intelwatch
-# or from source:
-npm link
+# or run directly without installing:
+npx intelwatch profile kpmg.fr --ai
 ```
 
 **Requirements:** Node.js >=18
 
-## Quick Start
+## 🚀 The Flagship Feature: Due Diligence
+
+Generate a comprehensive M&A/PE due diligence report in seconds. Intelwatch uses Smart Routing to fetch the best data based on the company's location (Pappers for France, Apollo/Clearbit/OpenCorporates for International).
 
 ```bash
-# Add trackers
-intelwatch track competitor https://competitor.com --name "Acme Corp"
-intelwatch track keyword "audit SEO"
-intelwatch track brand "Recognity"
+# Generate a deep profile with AI Due Diligence
+intelwatch profile doctolib.fr --ai
 
-# Run checks
-intelwatch check
+# Export directly to a premium PDF report (Pro feature)
+intelwatch profile kpmg.fr --ai --export pdf
 
-# See what changed
-intelwatch digest
-
-# Full report
-intelwatch report --format html
+# Export data to Excel or CSV
+intelwatch profile "Acme Corp" --export xls
 ```
 
-## Commands
+**What it extracts:**
+- **Financials:** Revenue, net result, consolidated data, and growth analysis.
+- **Group Structure:** Shareholders, PE sponsors, and subsidiaries tree.
+- **Governance & M&A:** Board members, BODACC legal publications, and historical M&A timeline.
+- **OSINT & Reputation:** Recent press mentions, Reddit/Hacker News discussions, and sentiment scoring.
+- **Tech Stack:** Detection of 50+ technologies (CMS, Frameworks, Analytics, CDNs).
+- **AI Analysis:** Executive summary, Strengths & Weaknesses, Competitor identification, and Risk flags.
 
-### Tracker Management
+---
 
-#### `intelwatch track competitor <url> [--name <alias>]`
-Tracks a competitor website. Captures:
-- Pages found (via link extraction)
-- Pricing page content and price changes
-- Technology stack (35+ technologies detected)
-- Open job positions (/careers, /jobs)
-- Social links
-- Meta title/description changes on key pages
+## 🛠️ Core Commands
+
+### 1. Market & Competitor Discovery
+Discover actual competitors for any website using web search and AI scoring.
 
 ```bash
-intelwatch track competitor https://acme.com --name "Acme"
-intelwatch track competitor https://rival.io
+intelwatch discover https://mycompany.com --export csv
 ```
 
-#### `intelwatch track keyword <keyword> [--engine google]`
-Tracks Google SERP rankings for a keyword. Records top 20 results, detects position changes, new entrants/exits, and featured snippet holders.
+### 2. Track Competitors & Keywords
+Set up local trackers to monitor competitor websites, technology changes, and Google SERP rankings over time.
 
 ```bash
-intelwatch track keyword "project management software"
+intelwatch track competitor https://acme.com --name "Acme Corp"
 intelwatch track keyword "audit SEO" --engine google
-```
-
-#### `intelwatch track brand <name>`
-Tracks brand mentions across Google News and recent web results. Detects sentiment (positive/negative) and categorizes mentions (press, blog, forum, social, review).
-
-```bash
 intelwatch track brand "Recognity"
-intelwatch track brand "My Company Name"
 ```
 
-### Listing & Removing
+### 3. Check & Digest
+Run your trackers and see what changed since the last snapshot.
 
 ```bash
-intelwatch list                    # List all trackers
-intelwatch remove <tracker-id>     # Remove a tracker
+intelwatch check
+intelwatch digest
+intelwatch diff acme-com --days 7
 ```
 
-### Checking & Diffs
+### 4. AI Briefs & Sales Pitches
+Generate AI-powered competitive briefs and sales pitches against your tracked competitors.
 
 ```bash
-intelwatch check                   # Check all trackers
-intelwatch check --tracker acme-com  # Check one tracker
-
-intelwatch diff acme-com           # Compare last 2 snapshots
-intelwatch diff acme-com --days 7  # Compare with 7 days ago
+intelwatch ai-summary
+intelwatch pitch acme-com
 ```
 
-### Reports
+---
+
+## 💎 Pro License ($49/mo)
+
+Intelwatch operates on a freemium model. The **Free Tier** allows standard OSINT, basic company profiles, and CSV exports.
+
+The **Pro Tier** unlocks:
+- 📄 **Premium PDF & Excel (XLS) exports**
+- 🤖 **AI Due Diligence Reports** (Health score, Risks, M&A timelines)
+- 🌍 **International Routing** (Apollo & Clearbit integrations)
+- 🕵️ **Deep OSINT** (Reddit & Hacker News tracking)
+
+**Activate your license:**
+```bash
+intelwatch auth YOUR_LICENSE_KEY
+```
+*(Get your key at [recognity.fr/tools/intelwatch](https://recognity.fr/tools/intelwatch))*
+
+---
+
+## ⚙️ Configuration & API Keys
+
+Intelwatch brings your own keys (BYOK) for maximum privacy and limit-less scaling. Set these in your environment variables (`~/.bashrc` or `~/.zshrc`):
 
 ```bash
-intelwatch digest                        # Quick summary table
-intelwatch report                        # Markdown report (stdout)
-intelwatch report --format html          # HTML report (saved to ~/.intelwatch/reports/)
-intelwatch report --format json          # JSON report (stdout)
-intelwatch report --format md --output ./weekly.md  # Custom output file
+# Required for AI Features (Choose one)
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-proj-..."
+
+# Required for Web Search & Discovery
+export BRAVE_SEARCH_API_KEY="BSAeG..."
+
+# Required for deep French corporate data
+export PAPPERS_API_KEY="86c0dcc..."
+
+# Required for deep International corporate data (Pro)
+export APOLLO_API_KEY="..."
 ```
 
-### History & Comparison
+*(You can also use a `.env` file in your working directory).*
 
-```bash
-intelwatch history acme-com              # Show snapshot history
-intelwatch history acme-com --limit 10  # Last 10 snapshots
+## 🔒 Privacy & Architecture
 
-intelwatch compare acme-com rival-com    # Side-by-side comparison
-```
-
-### Notifications
-
-```bash
-intelwatch notify --setup    # Interactive setup (Slack, Discord webhook)
-```
-
-Notifications config is stored at `~/.intelwatch/config.yml`:
-
-```yaml
-notifications:
-  webhook: https://hooks.slack.com/services/xxx/yyy/zzz
-  events:
-    - competitor.new_page
-    - competitor.price_change
-    - keyword.position_change
-    - brand.new_mention
-    - brand.negative_mention
-```
-
-## Data Storage
-
-All data is stored locally in `~/.intelwatch/`:
-
-```
-~/.intelwatch/
-├── config.yml           # Notification settings
-├── trackers.json        # Active trackers
-├── snapshots/           # Historical snapshots (JSON)
-└── reports/             # Generated HTML reports
-```
-
-## Technology Detection
-
-Detects 35+ technologies via headers, meta tags, scripts, HTML patterns:
-
-| Category | Technologies |
-|----------|-------------|
-| CMS | WordPress, Drupal, Joomla |
-| E-commerce | Shopify, Magento |
-| Website Builder | Wix, Squarespace, Webflow |
-| JS Framework | React, Vue.js, Angular, Next.js, Nuxt.js, Gatsby, Svelte |
-| JS Library | jQuery |
-| CSS Framework | Bootstrap, Tailwind CSS |
-| Analytics | Google Analytics, Google Tag Manager, Facebook Pixel, Hotjar |
-| CRM/Marketing | HubSpot, Mailchimp, Intercom |
-| CDN/Security | Cloudflare |
-| Web Server | nginx, Apache |
-| Hosting | Vercel, Netlify |
-| Backend | PHP, Django, Ruby on Rails, Node.js/Express |
-| Payment | Stripe |
-
-## Sentiment Analysis
-
-English and French word lists for positive/negative detection in brand mentions. Categorizes mentions as: press, blog, forum, social, or review.
-
-## Design Principles
-
-- **No external APIs** — everything via respectful web scraping
-- **Respectful scraping** — 1-2s delays, user-agent rotation, retry backoff
-- **Graceful degradation** — saves what it can if a check partially fails
-- **Local-first** — all data stays on your machine
-
-## Tests
-
-```bash
-npm test
-```
-
-40 tests covering storage logic, technology detection, and sentiment analysis.
+- **Local-first**: All tracker data, snapshots, and configurations are stored locally in `~/.intelwatch/`.
+- **No intermediary servers**: The CLI talks directly to the data providers (Pappers, Apollo, Brave, Anthropic/OpenAI). We do not see your API keys or your searches.
+- **Smart Routing**: `registry.js` automatically detects French companies (via SIREN/SIRET or country code) and routes them to Pappers, while international companies gracefully fallback to Apollo and OpenCorporates.
 
 ## License
 
