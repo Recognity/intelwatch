@@ -5,9 +5,13 @@ import { loadConfig } from '../config.js';
  * Returns null if no key is configured.
  */
 export function getAIConfig() {
+  const envGoogle = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
   const envOpenAI = process.env.OPENAI_API_KEY;
   const envAnthropic = process.env.ANTHROPIC_API_KEY;
 
+  if (envGoogle) {
+    return { provider: 'google', apiKey: envGoogle, model: 'gemini-2.5-flash' };
+  }
   if (envOpenAI) {
     return { provider: 'openai', apiKey: envOpenAI, model: 'gpt-4o-mini' };
   }
@@ -47,7 +51,7 @@ export async function callAI(systemPrompt, userPrompt, options = {}) {
   const aiConfig = getAIConfig();
   if (!aiConfig) {
     throw new Error(
-      'No AI API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
+      'No AI API key configured. Set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
       'or add ai.api_key to ~/.intelwatch/config.yml'
     );
   }
@@ -55,6 +59,9 @@ export async function callAI(systemPrompt, userPrompt, options = {}) {
   const { provider, apiKey, model } = aiConfig;
   const maxTokens = options.maxTokens || 1000;
 
+  if (provider === 'google') {
+    return callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens);
+  }
   if (provider === 'anthropic') {
     return callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens);
   }
@@ -127,4 +134,35 @@ export function estimateCost(inputChars, outputChars, provider = 'openai') {
 
   const cost = inputTokens * rates.in + outputTokens * rates.out;
   return { inputTokens, outputTokens, cost: cost.toFixed(5) };
+}
+
+
+async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens) {
+  // Use v1beta for Gemini 2.5
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        maxOutputTokens: maxTokens,
+        temperature: 0.2
+      }
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google API ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.candidates || !data.candidates[0].content) {
+    throw new Error('Invalid Google API response');
+  }
+  return data.candidates[0].content.parts[0].text.trim();
 }

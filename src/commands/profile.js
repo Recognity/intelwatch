@@ -799,6 +799,7 @@ OBLIGATOIRE :
 - ${getPrompt('strengthsWeaknessesRules')}
 - Minimum 5 concurrents de taille comparable (CA consolidé similaire, même code NAF ${identity.nafCode || ''})
 - Le score de santé doit être basé sur les finances CONSOLIDÉES si disponibles
+- BE EXTREMELY CONCISE. Use bullet points and short sentences. Max 30 words per field.
 - Ne mentionne JAMAIS que la holding a peu d'employés comme faiblesse — c'est normal pour une holding, les employés sont dans les filiales
 - maHistory: The PRE-BUILT M&A TIMELINE above contains ALL entries with AUTHORITATIVE dates and types.
   RULES:
@@ -817,7 +818,7 @@ OBLIGATOIRE :
   - aiComment: 3-4 sentences. Compare deposited (62M€ 2024) vs announced/projected. Be specific. If multiple revenue targets exist (e.g. 100M€ and 300M€), explain both.
   - aiComment: 3-4 sentences comparing deposited vs announced/projected, discussing growth sustainability and outlook`;
 
-        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 3500 });
+        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192 });
         aiAnalysis = extractAIJSON(raw);
 
         // M&A History: Merging code-built events with AI events instead of overwriting
@@ -944,8 +945,9 @@ OBLIGATOIRE :
     }
   }
 
+  let pdfData = null;
   // ── PDF export ──────────────────────────────────────────────────────────────
-  if (options.format === 'pdf') {
+  if (options.format === 'pdf' || options.export === 'pdf') {
     const outputPath = options.output || `profile-${siren}.pdf`;
     const fmtEuro = (n) => {
       if (n == null) return '—';
@@ -964,22 +966,24 @@ OBLIGATOIRE :
       });
     }
 
-    const pdfData = {
+    pdfData = {
       aiSummary: aiAnalysis?.executiveSummary || null,
       groupStructure: (() => {
         const gs = aiAnalysis?.groupStructure || {};
-        // Override subsidiaries with real data — top 7 by CA, mixing branded + off-brand
-        if (subsidiariesData?.length) {
-          gs.subsidiaries = subsidiariesData
-            .filter(s => s.ca && s.ca > 0)
-            .sort((a, b) => (b.ca || 0) - (a.ca || 0))
-            .slice(0, 7)
-            .map(s => ({ entity: s.name, revenue: `${(s.ca / 1e6).toFixed(1)} M€${s.annee ? ' (' + s.annee + ')' : ''}` }));
+        // Combine AI subsidiaries with real data
+        const pappersSubs = (subsidiariesData || [])
+          .filter(s => s.ca && s.ca > 0)
+          .sort((a, b) => (b.ca || 0) - (a.ca || 0))
+          .slice(0, 7)
+          .map(s => ({ entity: s.name, revenue: `${(s.ca / 1e6).toFixed(1)} M€${s.annee ? ' (' + s.annee + ')' : ''}` }));
+        
+        if (pappersSubs.length > 0) {
+          gs.subsidiaries = pappersSubs;
         }
         return gs;
       })(),
       aiCompetitors: aiAnalysis?.competitors || [],
-      maHistory: aiAnalysis?.maHistory || [],
+      maHistory: (aiAnalysis?.maHistory?.length ? aiAnalysis.maHistory : codeBuiltMaHistory) || [],
       riskAssessment: aiAnalysis?.riskAssessment || null,
       healthScore: aiAnalysis?.healthScore || null,
       growthAnalysis: (() => {
@@ -1210,7 +1214,7 @@ OBLIGATOIRE :
           siren: r.siren,
         })),
         // Etablissements
-        etablissements: (etablissements || []).map(e => ({
+        etablissements: (etablissements || []).filter(e => e.actif !== false).map(e => ({
           siret: e.siret,
           type: e.type,
           address: e.adresse,
@@ -1254,7 +1258,7 @@ OBLIGATOIRE :
         bodacc: (bodacc || []).slice(0, 15).map(b => ({
           date: b.date || '—',
           type: b.type || '—',
-          description: b.description || '',
+          description: (b.description && b.description.length > 140) ? b.description.substring(0, 140) + '...' : (b.description || ''),
           url: b.url || null,
         })),
         // Procédures collectives
