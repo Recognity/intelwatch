@@ -7,9 +7,17 @@ import { runKeywordCheck, diffKeywordSnapshots } from '../trackers/keyword.js';
 import { runBrandCheck, diffBrandSnapshots } from '../trackers/brand.js';
 import { runPersonCheck, diffPersonSnapshots } from '../trackers/person.js';
 import { header, section, diffLine, success, warn, error, trackerTypeIcon } from '../utils/display.js';
+import { exportToJSON, exportToCSV, formatForExport } from '../utils/export.js';
+import { setLanguage, getLanguage } from '../utils/i18n.js';
 
-export async function runCheck(options) {
+export async function runCheck(options = {}) {
+  // Set language from global option
+  if (options.parent?.opts()?.lang) {
+    setLanguage(options.parent.opts().lang);
+  }
+
   const trackers = loadTrackers();
+  const results = []; // Pour l'export
 
   if (trackers.length === 0) {
     warn('No trackers configured. Use `intelwatch track` to add one.');
@@ -28,6 +36,17 @@ export async function runCheck(options) {
   let totalChanges = 0;
 
   for (const tracker of toCheck) {
+    const result = {
+      trackerId: tracker.id,
+      name: tracker.name || tracker.url,
+      url: tracker.url,
+      type: tracker.type,
+      status: 'unknown',
+      changes: [],
+      snapshot: null,
+      error: null,
+      checkedAt: new Date().toISOString()
+    };
     header(`${trackerTypeIcon(tracker.type)} ${tracker.name || tracker.keyword || tracker.brandName} [${tracker.id}]`);
 
     try {
@@ -63,8 +82,17 @@ export async function runCheck(options) {
         checkCount: (tracker.checkCount || 0) + 1,
       });
 
+      // Update result data
+      result.status = snapshot.error ? 'error' : 'success';
+      result.changes = changes;
+      result.snapshot = snapshot;
+      result.techStack = snapshot.techStack;
+      result.seoScore = snapshot.seoSignals?.score;
+      result.sentiment = snapshot.sentiment;
+
       if (snapshot.error) {
         warn(`  Error: ${snapshot.error}`);
+        result.error = snapshot.error;
       } else {
         success(`  Check complete`);
       }
@@ -255,7 +283,11 @@ export async function runCheck(options) {
     } catch (err) {
       error(`  Failed: ${err.message}`);
       updateTracker(tracker.id, { status: 'error', lastError: err.message });
+      result.status = 'error';
+      result.error = err.message;
     }
+    
+    results.push(result);
   }
 
   console.log('');
@@ -263,5 +295,24 @@ export async function runCheck(options) {
     success(`${totalChanges} total change(s) detected across ${toCheck.length} tracker(s).`);
   } else {
     console.log(chalk.gray('No changes detected.'));
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+  if (options.export) {
+    try {
+      const formatted = formatForExport(results, 'check');
+      
+      if (options.export.toLowerCase() === 'json') {
+        const result = exportToJSON(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else if (options.export.toLowerCase() === 'csv') {
+        const result = exportToCSV(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else {
+        console.log(chalk.yellow(`\n  ⚠️  Unsupported export format: ${options.export}. Use 'json' or 'csv'.\n`));
+      }
+    } catch (e) {
+      console.error(chalk.red(`\n  ❌ Export failed: ${e.message}\n`));
+    }
   }
 }

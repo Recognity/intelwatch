@@ -6,12 +6,19 @@ import { analyzeSite } from '../scrapers/site-analyzer.js';
 import { callAI, hasAIKey } from '../ai/client.js';
 import { header, section, warn, error } from '../utils/display.js';
 import { generatePDF } from '@recognity/pdf-report';
+import { exportToJSON, exportToCSV, formatForExport } from '../utils/export.js';
+import { setLanguage, getLanguage, t, getPrompt } from '../utils/i18n.js';
 
 const LICENSE_URL = 'https://recognity.fr/tools/intelwatch';
 
 export async function runMA(sirenOrName, options) {
   const hasLicense = !!process.env.INTELWATCH_LICENSE_KEY;
   const isPreview = !!options.preview;
+  
+  // Set language from global option (passed from main program)
+  if (options.parent?.opts()?.lang) {
+    setLanguage(options.parent.opts().lang);
+  }
 
   // ── License gate ───────────────────────────────────────────────────────────
   if (!hasLicense && !isPreview) {
@@ -652,11 +659,11 @@ export async function runMA(sirenOrName, options) {
           ? representants.map(r => `- ${r.personneMorale ? '[PM]' : '[PP]'} ${r.nom} — ${r.qualite}${r.siren ? ' (SIREN: ' + r.siren + ')' : ''}`).join('\n')
           : 'Non disponible';
 
-        const systemPrompt = `You are an expert M&A analyst specialized in mid-market due diligence. Analyze the company data provided and return ONLY valid JSON according to the requested schema. No text before or after the JSON. No markdown blocks. Be factual, sourced, no speculation. ALL text output (summaries, strengths, weaknesses, descriptions) MUST be in English.
+        const systemPrompt = getPrompt('dueDiligenceSystem') + `
 
 RÈGLES CRITIQUES :
 1. HOLDING vs GROUPE : les données "entité" (effectifs, CA) sont celles de la HOLDING (société mère). Les données "consolidées" sont celles du GROUPE ENTIER. Ne confonds JAMAIS les deux. Si la holding a 5 salariés mais le groupe consolide 60M€ de CA, c'est un GRAND groupe. Base ton analyse sur les chiffres consolidés quand disponibles.
-2. CONCURRENTS : identifie des concurrents dont le CA FRANCE est dans la fourchette 0.5x à 2x du CA consolidé de la cible. Par exemple si la cible fait 62M€, les concurrents doivent être entre 30M€ et 125M€ de CA EN FRANCE (pas mondial). JAMAIS citer un CA mondial/global — toujours le CA France. JAMAIS les Big 4 (KPMG, Deloitte, EY, PwC). JAMAIS Mazars (>1B€ mondial), Fiducial (>2B€ mondial) sauf si leur CA France est comparable. Pour un cabinet comptable mid-market français à 62M€, pense plutôt : In Extenso (~60-70M€ France), Baker Tilly (~60M€ France), RSM (~55M€ France), Grant Thornton (~60-80M€ France), Crowe (~40M€ France).
+2. ${getPrompt('competitorRules')}
 3. CROISEMENT PRESSE : si un article de presse mentionne une acquisition, une entrée au capital (ex: fonds PE), un rachat, un partenariat — INCLUS-LE dans groupStructure et maHistory avec l'URL source. La presse révèle souvent des opérations avant le registre.
 4. REPRÉSENTANTS : les personnes morales (PM) au capital sont souvent des fonds PE, des holdings familiales ou des véhicules d'investissement. Identifie-les et intègre-les dans la structure du groupe. Si tu reconnais un fonds PE connu (BPI France, IK Partners, Ardian, etc.), mentionne-le explicitement.
 5. SCORING : évalue la santé financière sur le CA CONSOLIDÉ (pas holding). Échelle 0-100 : croissance CA consolidé, rentabilité consolidée, stabilité, diversification géographique/sectorielle, gouvernance.`;
@@ -792,7 +799,7 @@ Retourne ce JSON exact (remplace les valeurs par l'analyse réelle) :
 Règles: confidence="confirmed_registry" si la donnée vient des données Pappers fournies, "confirmed_press" + sourceUrl si d'un article de presse listé ci-dessus, "unconfirmed" sinon.
 
 OBLIGATOIRE :
-- Minimum 3 forces et 3 faiblesses
+- ${getPrompt('strengthsWeaknessesRules')}
 - Minimum 5 concurrents de taille comparable (CA consolidé similaire, même code NAF ${identity.nafCode || ''})
 - Le score de santé doit être basé sur les finances CONSOLIDÉES si disponibles
 - Ne mentionne JAMAIS que la holding a peu d'employés comme faiblesse — c'est normal pour une holding, les employés sont dans les filiales
@@ -840,7 +847,7 @@ OBLIGATOIRE :
 
           // Display strengths
           if (aiAnalysis.strengths?.length) {
-            console.log(chalk.green.bold('  💪 Forces :'));
+            console.log(chalk.green.bold(`  💪 ${t('forces')} :`));
             for (const s of aiAnalysis.strengths.slice(0, 4)) {
               console.log(chalk.green(`     + ${s.text || s}`));
             }
@@ -848,7 +855,7 @@ OBLIGATOIRE :
 
           // Display weaknesses
           if (aiAnalysis.weaknesses?.length) {
-            console.log(chalk.red.bold('  ⚠️  Faiblesses :'));
+            console.log(chalk.red.bold(`  ⚠️  ${t('faiblesses')} :`));
             for (const w of aiAnalysis.weaknesses.slice(0, 4)) {
               console.log(chalk.red(`     - ${w.text || w}`));
             }
@@ -857,7 +864,7 @@ OBLIGATOIRE :
           // Display risk level
           if (aiAnalysis.riskAssessment) {
             const riskColor = { low: chalk.green, medium: chalk.yellow, high: chalk.red, critical: chalk.red.bold }[aiAnalysis.riskAssessment.overall] || chalk.gray;
-            console.log('\n  ' + riskColor(`🎯 Risque global : ${(aiAnalysis.riskAssessment.overall || '?').toUpperCase()}`));
+            console.log('\n  ' + riskColor(`🎯 ${t('riskLevel')} : ${t(`risk.${aiAnalysis.riskAssessment.overall}`) || (aiAnalysis.riskAssessment.overall || '?').toUpperCase()}`));
             for (const f of (aiAnalysis.riskAssessment.flags || []).slice(0, 3)) {
               const sevColor = { low: chalk.gray, medium: chalk.yellow, high: chalk.red, critical: chalk.red.bold }[f.severity] || chalk.gray;
               console.log(sevColor(`     [${f.severity || '?'}] ${f.text || ''}`));
@@ -868,7 +875,7 @@ OBLIGATOIRE :
           if (aiAnalysis.healthScore) {
             const hs = aiAnalysis.healthScore;
             const scoreColor = hs.score >= 70 ? chalk.green : hs.score >= 50 ? chalk.yellow : chalk.red;
-            console.log('\n  ' + scoreColor(`📊 Score santé financière : ${hs.score}/100`));
+            console.log('\n  ' + scoreColor(`📊 ${t('healthScore')} : ${hs.score}/100`));
             if (hs.breakdown) {
               for (const [key, val] of Object.entries(hs.breakdown)) {
                 const c = val.score >= 70 ? chalk.green : val.score >= 50 ? chalk.yellow : chalk.red;
@@ -880,7 +887,7 @@ OBLIGATOIRE :
 
           // Display competitors
           if (aiAnalysis.competitors?.length) {
-            console.log(chalk.cyan.bold('\n  🏁 Concurrents identifiés :'));
+            console.log(chalk.cyan.bold(`\n  🏁 ${t('competitors')} :`));
             for (const c of aiAnalysis.competitors) {
               console.log(chalk.cyan(`     • ${c.name}${c.estimatedRevenue ? ' — ' + c.estimatedRevenue : ''}`));
             }
@@ -1291,6 +1298,43 @@ OBLIGATOIRE :
     }
   }
 
+  // ── Export ─────────────────────────────────────────────────────────────────
+  if (options.export) {
+    try {
+      const profileData = {
+        siren,
+        identity,
+        financialHistory,
+        subsidiaries: subsidiariesData,
+        aiAnalysis,
+        groupStructure: pdFriendlyData?.groupStructure,
+        summary: `${identity.name || siren} — ${identity.formeJuridique || ''}, ${identity.nafLabel || ''}. Created ${identity.dateCreation || '?'}.`,
+        executiveSummary: aiAnalysis?.executiveSummary,
+        strengths: aiAnalysis?.strengths || [],
+        weaknesses: aiAnalysis?.weaknesses || [],
+        competitors: aiAnalysis?.competitors || [],
+        healthScore: aiAnalysis?.healthScore,
+        riskAssessment: aiAnalysis?.riskAssessment,
+        exportedAt: new Date().toISOString(),
+        language: getLanguage()
+      };
+
+      const formatted = formatForExport(profileData, 'profile');
+      
+      if (options.export.toLowerCase() === 'json') {
+        const result = exportToJSON(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else if (options.export.toLowerCase() === 'csv') {
+        const result = exportToCSV(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else {
+        console.log(chalk.yellow(`\n  ⚠️  Unsupported export format: ${options.export}. Use 'json' or 'csv'.\n`));
+      }
+    } catch (e) {
+      console.error(chalk.red(`\n  ❌ Export failed: ${e.message}\n`));
+    }
+  }
+
   // ── Footer ─────────────────────────────────────────────────────────────────
   console.log('');
   const today = new Date().toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -1301,17 +1345,97 @@ OBLIGATOIRE :
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function extractAIJSON(text) {
-  if (!text) return null;
+  if (!text) {
+    console.error('❌ Empty AI response received');
+    return null;
+  }
+  
+  // Log raw response for debugging
+  if (process.env.DEBUG_AI) {
+    console.log('🔍 Raw AI response:', text.substring(0, 200) + '...');
+  }
+  
   // Direct parse
-  try { return JSON.parse(text); } catch {}
+  try { 
+    const parsed = JSON.parse(text);
+    // Validate strengths/weaknesses structure
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.strengths && !Array.isArray(parsed.strengths)) {
+        console.warn('⚠️ Strengths is not an array, attempting to fix...');
+        parsed.strengths = [];
+      }
+      if (parsed.weaknesses && !Array.isArray(parsed.weaknesses)) {
+        console.warn('⚠️ Weaknesses is not an array, attempting to fix...');
+        parsed.weaknesses = [];
+      }
+      // Convert string items to objects if needed
+      if (parsed.strengths) {
+        parsed.strengths = parsed.strengths.map(s => 
+          typeof s === 'string' ? { text: s, confidence: 'unconfirmed' } : s
+        );
+      }
+      if (parsed.weaknesses) {
+        parsed.weaknesses = parsed.weaknesses.map(w => 
+          typeof w === 'string' ? { text: w, confidence: 'unconfirmed' } : w
+        );
+      }
+    }
+    return parsed;
+  } catch (e) {
+    if (process.env.DEBUG_AI) console.log('Direct JSON parse failed:', e.message);
+  }
+  
   // Strip markdown code fences
   const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-  try { return JSON.parse(stripped); } catch {}
+  try { 
+    const parsed = JSON.parse(stripped);
+    // Apply same validation as above
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.strengths && !Array.isArray(parsed.strengths)) parsed.strengths = [];
+      if (parsed.weaknesses && !Array.isArray(parsed.weaknesses)) parsed.weaknesses = [];
+      if (parsed.strengths) {
+        parsed.strengths = parsed.strengths.map(s => 
+          typeof s === 'string' ? { text: s, confidence: 'unconfirmed' } : s
+        );
+      }
+      if (parsed.weaknesses) {
+        parsed.weaknesses = parsed.weaknesses.map(w => 
+          typeof w === 'string' ? { text: w, confidence: 'unconfirmed' } : w
+        );
+      }
+    }
+    return parsed;
+  } catch (e) {
+    if (process.env.DEBUG_AI) console.log('Stripped JSON parse failed:', e.message);
+  }
+  
   // Extract first {...} block
   const match = text.match(/\{[\s\S]*\}/);
   if (match) {
-    try { return JSON.parse(match[0]); } catch {}
+    try { 
+      const parsed = JSON.parse(match[0]);
+      // Apply same validation
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.strengths && !Array.isArray(parsed.strengths)) parsed.strengths = [];
+        if (parsed.weaknesses && !Array.isArray(parsed.weaknesses)) parsed.weaknesses = [];
+        if (parsed.strengths) {
+          parsed.strengths = parsed.strengths.map(s => 
+            typeof s === 'string' ? { text: s, confidence: 'unconfirmed' } : s
+          );
+        }
+        if (parsed.weaknesses) {
+          parsed.weaknesses = parsed.weaknesses.map(w => 
+            typeof w === 'string' ? { text: w, confidence: 'unconfirmed' } : w
+          );
+        }
+      }
+      return parsed;
+    } catch (e) {
+      if (process.env.DEBUG_AI) console.log('Regex extracted JSON parse failed:', e.message);
+    }
   }
+  
+  console.error('❌ Failed to parse AI response as JSON. Run with DEBUG_AI=1 for details.');
   return null;
 }
 

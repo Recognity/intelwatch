@@ -18,7 +18,8 @@ const program = new Command();
 program
   .name('intelwatch')
   .description('Competitive intelligence CLI — track competitors, keywords, and brand mentions from the terminal')
-  .version('1.0.0');
+  .version('1.1.6')
+  .option('--lang <language>', 'Language for AI prompts and labels (en, fr)', 'en');
 
 // ─── track ────────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,8 @@ program
   .command('check')
   .description('Run checks for all (or one) tracker(s)')
   .option('--tracker <id>', 'Only check this specific tracker')
+  .option('--export <format>', 'Export results (json, csv)')
+  .option('--output <file>', 'Output file path for export')
   .action(async (options) => {
     await runCheck(options);
   });
@@ -89,8 +92,10 @@ program
 program
   .command('digest')
   .description('Show a summary of all changes across all trackers')
-  .action(async () => {
-    await runDigest();
+  .option('--export <format>', 'Export results (json, csv)')
+  .option('--output <file>', 'Output file path for export')
+  .action(async (options) => {
+    await runDigest(options);
   });
 
 // ─── diff ─────────────────────────────────────────────────────────────────────
@@ -110,6 +115,7 @@ program
   .description('Generate a full intelligence report')
   .option('--format <format>', 'Output format: md, html, json', 'md')
   .option('--output <file>', 'Write report to file')
+  .option('--export <format>', 'Export raw data (json, csv)')
   .action(async (options) => {
     await runReport(options);
   });
@@ -164,6 +170,7 @@ program
   .option('--ai', 'Generate an AI-powered due diligence summary (requires AI API key)')
   .option('--format <type>', 'Output format: terminal (default) or pdf')
   .option('--output <path>', 'Output file path for PDF')
+  .option('--export <format>', 'Export structured data (json, csv)')
   .action(async (sirenOrName, options) => {
     await runMA(sirenOrName, options);
   });

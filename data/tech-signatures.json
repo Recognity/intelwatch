@@ -384,6 +384,237 @@
         "html": ["MAGE_URLS", "mage-init"],
         "paths": ["/catalog/product/", "/checkout/"]
       }
+    },
+    {
+      "name": "Nuxt.js",
+      "category": "Framework",
+      "checks": {
+        "headers": [{ "name": "x-nuxt-server", "pattern": ".*" }],
+        "meta": [{ "name": "generator", "pattern": "Nuxt" }],
+        "scripts": ["_nuxt/", "nuxt.js"],
+        "html": ["__nuxt", "window.__NUXT__"],
+        "paths": ["/_nuxt/"]
+      }
+    },
+    {
+      "name": "Svelte",
+      "category": "Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["svelte"],
+        "html": ["svelte-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "SvelteKit",
+      "category": "Framework",
+      "checks": {
+        "headers": [],
+        "meta": [{ "name": "generator", "pattern": "SvelteKit" }],
+        "scripts": ["_app/"],
+        "html": ["__sveltekit"],
+        "paths": ["/_app/"]
+      }
+    },
+    {
+      "name": "Vite",
+      "category": "Build Tool",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Vite" }],
+        "meta": [],
+        "scripts": ["vite/", "@vite/"],
+        "html": ["vite:"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Tailwind CSS",
+      "category": "CSS Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["tailwindcss"],
+        "html": ["tailwind", "tw-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Bootstrap",
+      "category": "CSS Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["bootstrap", "popper"],
+        "html": ["bootstrap", "btn-", "col-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Webflow",
+      "category": "Website Builder",
+      "checks": {
+        "headers": [{ "name": "x-served-by", "pattern": "webflow" }],
+        "meta": [{ "name": "generator", "pattern": "Webflow" }],
+        "scripts": ["webflow"],
+        "html": ["w-", "webflow"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Framer",
+      "category": "Website Builder",
+      "checks": {
+        "headers": [{ "name": "x-frame-options", "pattern": "framer" }],
+        "meta": [],
+        "scripts": ["framer"],
+        "html": ["framer-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Vercel",
+      "category": "Hosting",
+      "checks": {
+        "headers": [{ "name": "x-vercel-cache", "pattern": ".*" }, { "name": "server", "pattern": "vercel" }],
+        "meta": [],
+        "scripts": ["_vercel"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Netlify",
+      "category": "Hosting",
+      "checks": {
+        "headers": [{ "name": "x-nf-request-id", "pattern": ".*" }, { "name": "server", "pattern": "Netlify" }],
+        "meta": [],
+        "scripts": ["netlify"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Gatsby",
+      "category": "Framework",
+      "checks": {
+        "headers": [],
+        "meta": [{ "name": "generator", "pattern": "Gatsby" }],
+        "scripts": ["gatsby", "webpack://"],
+        "html": ["___gatsby", "gatsby-"],
+        "paths": ["/page-data/"]
+      }
+    },
+    {
+      "name": "Astro",
+      "category": "Framework",
+      "checks": {
+        "headers": [],
+        "meta": [{ "name": "generator", "pattern": "Astro" }],
+        "scripts": ["astro"],
+        "html": ["astro-"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Remix",
+      "category": "Framework",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["remix"],
+        "html": ["__remix"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Strapi",
+      "category": "CMS",
+      "checks": {
+        "headers": [{ "name": "x-powered-by", "pattern": "Strapi" }],
+        "meta": [],
+        "scripts": ["strapi"],
+        "html": [],
+        "paths": ["/admin/", "/api/"]
+      }
+    },
+    {
+      "name": "Contentful",
+      "category": "CMS",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["contentful", "cdn.contentful.com"],
+        "html": ["contentful"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Sanity",
+      "category": "CMS",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["sanity", "cdn.sanity.io"],
+        "html": ["sanity"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Prismic",
+      "category": "CMS",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["prismic", "cdn.prismic.io"],
+        "html": ["prismic"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Firebase",
+      "category": "Backend",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["firebase", "firebaseapp.com", "googleapis.com/js/api.js"],
+        "html": ["__firebase", "firebase"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Supabase",
+      "category": "Backend",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["supabase"],
+        "html": ["supabase"],
+        "paths": []
+      }
+    },
+    {
+      "name": "Plausible",
+      "category": "Analytics",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["plausible.io/js/script.js", "plausible.js"],
+        "html": [],
+        "paths": []
+      }
+    },
+    {
+      "name": "Fathom",
+      "category": "Analytics",
+      "checks": {
+        "headers": [],
+        "meta": [],
+        "scripts": ["usefathom.com", "fathom.js"],
+        "html": [],
+        "paths": []
+      }
     }
   ]
 }

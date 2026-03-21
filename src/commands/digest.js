@@ -5,9 +5,17 @@ import { diffKeywordSnapshots } from '../trackers/keyword.js';
 import { diffBrandSnapshots } from '../trackers/brand.js';
 import { createTable, header, section, trackerTypeIcon, warn } from '../utils/display.js';
 import { hasAIKey, callAI, getAIConfig } from '../ai/client.js';
+import { exportToJSON, exportToCSV, formatForExport } from '../utils/export.js';
+import { setLanguage, getLanguage } from '../utils/i18n.js';
 
-export async function runDigest() {
+export async function runDigest(options = {}) {
+  // Set language from global option
+  if (options.parent?.opts()?.lang) {
+    setLanguage(options.parent.opts().lang);
+  }
+
   const trackers = loadTrackers();
+  const digestData = []; // Pour l'export
 
   if (trackers.length === 0) {
     warn('No trackers configured. Use `intelwatch track` to add one.');
@@ -62,6 +70,18 @@ export async function runDigest() {
       summary.slice(0, 50),
     ]);
 
+    // Data pour export
+    digestData.push({
+      trackerId: tracker.id,
+      name: target,
+      type: tracker.type,
+      changes: changes,
+      changesCount: changes.length,
+      lastCheck: latest.timestamp || latest.createdAt,
+      summary: summary.length > 50 ? summary.slice(0, 47) + '...' : summary,
+      status: latest.error ? 'error' : 'active'
+    });
+
     totalChanges += changes.length;
   }
 
@@ -82,6 +102,25 @@ export async function runDigest() {
     await runAIDigestSummary(trackers);
   } else {
     console.log(chalk.gray('\nTip: set OPENAI_API_KEY or ANTHROPIC_API_KEY for AI-powered digest analysis.'));
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+  if (options.export) {
+    try {
+      const formatted = formatForExport(digestData, 'digest');
+      
+      if (options.export.toLowerCase() === 'json') {
+        const result = exportToJSON(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else if (options.export.toLowerCase() === 'csv') {
+        const result = exportToCSV(formatted, options.output);
+        console.log(chalk.green(`\n  ✅ ${result}\n`));
+      } else {
+        console.log(chalk.yellow(`\n  ⚠️  Unsupported export format: ${options.export}. Use 'json' or 'csv'.\n`));
+      }
+    } catch (e) {
+      console.error(chalk.red(`\n  ❌ Export failed: ${e.message}\n`));
+    }
   }
 }
 

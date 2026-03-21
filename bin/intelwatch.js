@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
 import { program } from '../src/index.js';
+import { setupGlobalErrorHandler, handleError } from '../src/utils/error-handler.js';
 
+// Setup global error handling
+setupGlobalErrorHandler();
+
+// Parse CLI arguments with error handling
 program.parseAsync(process.argv).catch(err => {
-  console.error('Fatal error:', err.message);
+  handleError(err, 'CLI');
   process.exit(1);
 });
