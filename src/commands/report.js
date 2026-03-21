@@ -9,7 +9,7 @@ import { diffCompetitorSnapshots } from '../trackers/competitor.js';
 import { diffKeywordSnapshots } from '../trackers/keyword.js';
 import { diffBrandSnapshots } from '../trackers/brand.js';
 import { computeThreatScore } from '../trackers/competitor.js';
-import { exportToJSON, exportToCSV, formatForExport } from '../utils/export.js';
+import { handleExport, formatForExport } from '../utils/export.js';
 import { setLanguage, getLanguage } from '../utils/i18n.js';
 
 export async function runReport(options = {}) {
@@ -87,20 +87,18 @@ export async function runReport(options = {}) {
     console.log(content);
   }
 
-  // ── Export raw data ────────────────────────────────────────────────────────
+  // ── Export raw data (json, csv, xls, pdf) ──────────────────────────────────
   if (options.export) {
     try {
-      const formatted = formatForExport(reportData, 'report');
-      
-      if (options.export.toLowerCase() === 'json') {
-        const result = exportToJSON(formatted, options.output ? options.output.replace(/\.[^.]+$/, '-data.json') : null);
-        console.log(chalk.green(`\n  ✅ ${result}\n`));
-      } else if (options.export.toLowerCase() === 'csv') {
-        const result = exportToCSV(formatted, options.output ? options.output.replace(/\.[^.]+$/, '-data.csv') : null);
-        console.log(chalk.green(`\n  ✅ ${result}\n`));
-      } else {
-        console.log(chalk.yellow(`\n  ⚠️  Unsupported export format: ${options.export}. Use 'json' or 'csv'.\n`));
-      }
+      const result = await handleExport(options.export, reportData, {
+        output: options.output,
+        commandType: 'report',
+        pdfOptions: {
+          type: 'intel-report',
+          title: 'IntelWatch Intelligence Report',
+        },
+      });
+      console.log(chalk.green(`\n  ✅ ${result}\n`));
     } catch (e) {
       console.error(chalk.red(`\n  ❌ Export failed: ${e.message}\n`));
     }

@@ -47,6 +47,16 @@ export function withErrorHandling(fn) {
  * Handle and format errors appropriately
  */
 export function handleError(error, context = '') {
+  // Guard against null/undefined/non-object errors
+  if (error == null) {
+    console.error(chalk.red(`\n❌ Unknown error${context ? ` in ${context}` : ''}`));
+    return;
+  }
+  if (typeof error === 'string') {
+    console.error(chalk.red(`\n❌ ${error}`));
+    return;
+  }
+
   if (process.env.NODE_ENV === 'development' || process.env.DEBUG_ERRORS) {
     console.error(chalk.red(`\n❌ Error${context ? ` in ${context}` : ''}:`));
     console.error(error.stack || error);

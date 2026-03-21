@@ -167,3 +167,18 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Array headers bug in tech-detect.js
 - Anthropic model name updated to `claude-3-5-haiku-latest`
+
+## [1.3.0] - 2026-03-21
+### Added
+- Pro License Paywall: Gated advanced features (PDF/XLS export, Deep Profile, International OSINT).
+- Stripe Payment Link integration for Intelwatch Pro subscriptions.
+- International Smart Routing: `.fr` hits Pappers, international hits Apollo/Clearbit/OpenCorporates.
+- France Handoff: International companies based in France are handed off to Pappers for deeper financial data.
+- Reddit JSON API & HackerNews Algolia integration for digital OSINT and sentiment tracking.
+- M&A Deep Dorks: Restricts Brave Search queries to specialized PE/M&A news sources (cfnews, lesechos, fusacq, etc.)
+- Export capabilities unified under `--export <json|csv|xls|pdf>` flag.
+
+### Fixed
+- M&A History PDF generation bug: Stopped truncating AI timeline events, full timeline is now preserved.
+- Group Structure Classification: Prevented PE Funds (BPIFrance, IK Partners, etc.) from being improperly categorized as operational subsidiaries in the AI due diligence report.
+- Fixed `pdfData` passthrough bug that caused empty PDF exports.

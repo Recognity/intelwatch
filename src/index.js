@@ -12,6 +12,11 @@ import { listTrackers, removeTrackerCmd } from './commands/list.js';
 import { runAISummary } from './commands/ai-summary.js';
 import { runPitch } from './commands/pitch.js';
 import { runMA } from './commands/profile.js';
+import { saveLicenseKey, isPro, _resetCache } from './license.js';
+import chalk from 'chalk';
+
+// Register company data providers (Pappers, OpenCorporates, Clearbit, Apollo)
+import './providers/index.js';
 
 const program = new Command();
 
@@ -81,7 +86,7 @@ program
   .command('check')
   .description('Run checks for all (or one) tracker(s)')
   .option('--tracker <id>', 'Only check this specific tracker')
-  .option('--export <format>', 'Export results (json, csv)')
+  .option('--export <format>', 'Export results (json, csv, xls, pdf)')
   .option('--output <file>', 'Output file path for export')
   .action(async (options) => {
     await runCheck(options);
@@ -92,7 +97,7 @@ program
 program
   .command('digest')
   .description('Show a summary of all changes across all trackers')
-  .option('--export <format>', 'Export results (json, csv)')
+  .option('--export <format>', 'Export results (json, csv, xls, pdf)')
   .option('--output <file>', 'Output file path for export')
   .action(async (options) => {
     await runDigest(options);
@@ -115,7 +120,7 @@ program
   .description('Generate a full intelligence report')
   .option('--format <format>', 'Output format: md, html, json', 'md')
   .option('--output <file>', 'Write report to file')
-  .option('--export <format>', 'Export raw data (json, csv)')
+  .option('--export <format>', 'Export raw data (json, csv, xls, pdf)')
   .action(async (options) => {
     await runReport(options);
   });
@@ -170,7 +175,7 @@ program
   .option('--ai', 'Generate an AI-powered due diligence summary (requires AI API key)')
   .option('--format <type>', 'Output format: terminal (default) or pdf')
   .option('--output <path>', 'Output file path for PDF')
-  .option('--export <format>', 'Export structured data (json, csv)')
+  .option('--export <format>', 'Export structured data (json, csv, xls, pdf)')
   .action(async (sirenOrName, options) => {
     await runMA(sirenOrName, options);
   });
@@ -197,6 +202,27 @@ program
       await setupNotifications(options);
     } else {
       console.log('Use `intelwatch notify --setup` to configure notifications.');
+    }
+  });
+
+// ─── auth ─────────────────────────────────────────────────────────────────────
+
+program
+  .command('auth <key>')
+  .description('Activate Pro license')
+  .action((key) => {
+    try {
+      const file = saveLicenseKey(key);
+      _resetCache();
+      if (isPro()) {
+        console.log(chalk.green('  ✅ Pro license activated!'));
+        console.log(chalk.gray(`     Saved to ${file}`));
+      } else {
+        console.log(chalk.red('  ❌ License key appears invalid.'));
+      }
+    } catch (err) {
+      console.error(chalk.red(`  ❌ ${err.message}`));
+      process.exit(1);
     }
   });
 

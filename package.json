@@ -1,6 +1,6 @@
 {
   "name": "intelwatch",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Competitive intelligence CLI — track competitors, keywords, and brand mentions from the terminal",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "intelwatch": "./bin/intelwatch.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/storage.test.js test/sentiment.test.js test/tech-detect.test.js test/export.test.js test/i18n.test.js test/error-handler.test.js test/reddit-hn.test.js test/license.test.js test/providers.test.js",
     "start": "node bin/intelwatch.js"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
     "cli-table3": "^0.6.5",
     "commander": "^12.1.0",
     "inquirer": "^10.2.2",
+    "xlsx": "^0.18.5",
     "yaml": "^2.6.1"
   },
   "engines": {

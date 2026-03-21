@@ -1,7 +1,7 @@
 import { analyzeSite, analyzeKeyPages } from '../scrapers/site-analyzer.js';
 import { scrapeNewsMentions } from '../scrapers/google-news.js';
 import { searchPressMentions, extractRatingsFromResults } from '../scrapers/brave-search.js';
-import { pappersLookup, hasPappersKey } from '../scrapers/pappers.js';
+import { lookupCompany, resolveProvider } from '../providers/registry.js';
 import { diffTechStacks } from '../utils/tech-detect.js';
 import { fetch } from '../utils/fetcher.js';
 import { load } from '../utils/parser.js';
@@ -83,14 +83,11 @@ export async function runCompetitorCheck(tracker) {
     }
   } catch {}
 
-  // --- Pappers lookup for .fr domains ---
-  let pappers = null;
-  const hostname = new URL(url).hostname;
-  if (hostname.endsWith('.fr') && hasPappersKey()) {
-    try {
-      pappers = await pappersLookup(brandName);
-    } catch {}
-  }
+  // --- Company data lookup (adapts to TLD: Pappers for .fr, OpenCorporates for international) ---
+  let companyData = null;
+  try {
+    companyData = await lookupCompany(brandName, url);
+  } catch {}
 
   return {
     type: 'competitor',
@@ -113,7 +110,9 @@ export async function runCompetitorCheck(tracker) {
     contentStats: siteData.contentStats,
     press,
     reputation,
-    pappers,
+    companyData,
+    // Backward compat: keep 'pappers' key if data came from Pappers
+    pappers: companyData?.source === 'pappers' ? companyData : (companyData || null),
   };
 }
 

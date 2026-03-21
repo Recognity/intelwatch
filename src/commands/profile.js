@@ -6,13 +6,12 @@ import { analyzeSite } from '../scrapers/site-analyzer.js';
 import { callAI, hasAIKey } from '../ai/client.js';
 import { header, section, warn, error } from '../utils/display.js';
 import { generatePDF } from '@recognity/pdf-report';
-import { exportToJSON, exportToCSV, formatForExport } from '../utils/export.js';
+import { handleExport, formatForExport } from '../utils/export.js';
 import { setLanguage, getLanguage, t, getPrompt } from '../utils/i18n.js';
-
-const LICENSE_URL = 'https://recognity.fr/tools/intelwatch';
+import { isPro, printProUpgrade } from '../license.js';
 
 export async function runMA(sirenOrName, options) {
-  const hasLicense = !!process.env.INTELWATCH_LICENSE_KEY;
+  const hasLicense = isPro();
   const isPreview = !!options.preview;
   
   // Set language from global option (passed from main program)
@@ -22,17 +21,14 @@ export async function runMA(sirenOrName, options) {
 
   // ── License gate ───────────────────────────────────────────────────────────
   if (!hasLicense && !isPreview) {
-    console.log(chalk.yellow.bold('\n  ⚡ Deep Profile Due Diligence — Module Premium\n'));
-    console.log(chalk.red('  The Deep Profile requires an Intelwatch Deep Profile license.'));
-    console.log(chalk.gray(`  Get yours at ${LICENSE_URL}\n`));
-    console.log(chalk.gray('  Run with --preview for a limited preview (company identity + last year financials only).'));
-    console.log('');
+    printProUpgrade('Deep Profile Due Diligence');
+    console.log(chalk.gray('  Run with --preview for a limited preview (company identity + last year financials only).\n'));
     process.exit(1);
   }
 
   if (isPreview && !hasLicense) {
     console.log(chalk.yellow('  ⚡ PREVIEW MODE — Company identity + last year financials only'));
-    console.log(chalk.gray(`  Upgrade to Intelwatch Deep Profile for full due diligence: ${LICENSE_URL}\n`));
+    printProUpgrade('Full company profile');
   }
 
   // ── SIREN or name lookup ───────────────────────────────────────────────────
@@ -310,11 +306,12 @@ export async function runMA(sirenOrName, options) {
       const press = await searchPressMentions(brandName);
       pressResults = press.mentions || [];
       
-      // Additional M&A-focused search to catch acquisitions/deals
+      // Additional M&A-focused search to catch acquisitions/deals (dorks: quality M&A sources only)
+      const MA_SITE_DORKS = '(site:fusacq.com OR site:cfnews.net OR site:lesechos.fr OR site:maddyness.com OR site:agefi.fr)';
       try {
         const { braveWebSearch } = await import('../scrapers/brave-search.js');
         await new Promise(r => setTimeout(r, 600));
-        const maSearch = await braveWebSearch(`"${brandName}" acquisition OR rachat OR "entrée au capital" OR "prise de participation"`, { count: 10 });
+        const maSearch = await braveWebSearch(`"${brandName}" (acquisition OR LBO OR rachat OR "levée de fonds" OR "entrée au capital" OR "prise de participation") ${MA_SITE_DORKS}`, { count: 10 });
         for (const r of (maSearch.results || [])) {
           const text = ((r.title || '') + ' ' + (r.snippet || '')).toLowerCase();
           if (!text.includes(brandName.toLowerCase())) continue;
@@ -823,20 +820,30 @@ OBLIGATOIRE :
         const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 3500 });
         aiAnalysis = extractAIJSON(raw);
 
-        // Merge: take descriptions from AI, keep dates/types/targets from code-built array
-        if (aiAnalysis && codeBuiltMaHistory.length > 0) {
+        // M&A History: Merging code-built events with AI events instead of overwriting
+        if (aiAnalysis) {
           const aiMa = aiAnalysis.maHistory || [];
-          for (const codeEntry of codeBuiltMaHistory) {
-            const targetKey = (codeEntry.target || '').toLowerCase().split(' ')[0];
-            const aiMatch = aiMa.find(a => {
-              const aTarget = (a.target || '').toLowerCase();
-              return aTarget.includes(targetKey) || targetKey.includes(aTarget.split(' ')[0]);
-            });
-            if (aiMatch?.description && !codeEntry.description) {
-              codeEntry.description = aiMatch.description;
+          
+          // Add AI identified M&A events that aren't in codeBuiltMaHistory
+          const mergedMaHistory = [...codeBuiltMaHistory];
+          
+          for (const aiEntry of aiMa) {
+            const targetKey = (aiEntry.target || '').toLowerCase().split(' ')[0];
+            const exists = mergedMaHistory.some(c => (c.target || '').toLowerCase().includes(targetKey));
+            
+            if (!exists && targetKey.length > 2) {
+              mergedMaHistory.push({
+                date: aiEntry.date || aiEntry.year || 'Unknown',
+                target: aiEntry.target,
+                type: aiEntry.type || 'Acquisition',
+                description: aiEntry.description || aiEntry.rationale || ''
+              });
             }
           }
-          aiAnalysis.maHistory = codeBuiltMaHistory;
+          
+          // Sort by date (descending string comparison is mostly ok for YYYY-MM)
+          mergedMaHistory.sort((a, b) => b.date.localeCompare(a.date));
+          aiAnalysis.maHistory = mergedMaHistory;
         }
 
         if (aiAnalysis) {
@@ -1307,7 +1314,7 @@ OBLIGATOIRE :
         financialHistory,
         subsidiaries: subsidiariesData,
         aiAnalysis,
-        groupStructure: pdFriendlyData?.groupStructure,
+        groupStructure: aiAnalysis?.groupStructure,
         summary: `${identity.name || siren} — ${identity.formeJuridique || ''}, ${identity.nafLabel || ''}. Created ${identity.dateCreation || '?'}.`,
         executiveSummary: aiAnalysis?.executiveSummary,
         strengths: aiAnalysis?.strengths || [],
@@ -1319,17 +1326,16 @@ OBLIGATOIRE :
         language: getLanguage()
       };
 
-      const formatted = formatForExport(profileData, 'profile');
-      
-      if (options.export.toLowerCase() === 'json') {
-        const result = exportToJSON(formatted, options.output);
-        console.log(chalk.green(`\n  ✅ ${result}\n`));
-      } else if (options.export.toLowerCase() === 'csv') {
-        const result = exportToCSV(formatted, options.output);
-        console.log(chalk.green(`\n  ✅ ${result}\n`));
-      } else {
-        console.log(chalk.yellow(`\n  ⚠️  Unsupported export format: ${options.export}. Use 'json' or 'csv'.\n`));
-      }
+      const result = await handleExport(options.export, profileData, {
+        pdfData: pdfData,
+        output: options.output,
+        commandType: 'profile',
+        pdfOptions: {
+          type: 'intel-report',
+          title: `Profile — ${identity.name || siren}`,
+        },
+      });
+      console.log(chalk.green(`\n  ✅ ${result}\n`));
     } catch (e) {
       console.error(chalk.red(`\n  ❌ Export failed: ${e.message}\n`));
     }
