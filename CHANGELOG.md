@@ -1,3 +1,13 @@
+## [1.3.2] - 2026-03-21
+### Added
+- **Google Gemini Provider**: Full support for Gemini models via Google API (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) for Due Diligence AI analysis
+
+### Fixed
+- **BODACC Limit**: Reduced BODACC publication injection from 50 to 5 entries for AI context to drastically reduce token usage and prevent truncation
+- **M&A Output**: Reduced AI verbosity on health scores by enforcing strict bullet points constraints
+- **MaxTokens Override**: Removed hardcoded `maxTokens=1000` default and bumped to `8192` to allow full M&A history to generate without arbitrary cutoff
+- **Group Structure Render**: Fixed logic that accidentally injected Private Equity shareholders (like BPIFrance) into the subsidiaries array
+
 # CHANGELOG - v1.2 Draft
 
 ## Version 1.2.0 (en développement)
@@ -182,3 +192,8 @@ All notable changes to this project will be documented in this file.
 - M&A History PDF generation bug: Stopped truncating AI timeline events, full timeline is now preserved.
 - Group Structure Classification: Prevented PE Funds (BPIFrance, IK Partners, etc.) from being improperly categorized as operational subsidiaries in the AI due diligence report.
 - Fixed `pdfData` passthrough bug that caused empty PDF exports.
+
+### v1.3.1 (2026-03-21)
+- **Bug Fix**: Fixed an issue where PDF exports could contain empty Group Structure and M&A History sections leading to ugly page breaks.
+- **Bug Fix**: Preserved AI-generated subsidiaries when registry fallback has missing revenue data.
+- **Bug Fix**: Fixed PDF context scope throwing an undefined error when exporting via the `--export pdf` flag instead of the legacy `--format` option.

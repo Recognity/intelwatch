@@ -32,6 +32,17 @@ describe('License Module', () => {
     }
     _resetCache();
   });
+  
+  before(() => {
+    delete process.env.INTELWATCH_PRO_KEY;
+    delete process.env.INTELWATCH_LICENSE_KEY;
+    for (const f of [LICENSE_FILE, LICENSE_FILE_ALT]) {
+      if (existsSync(f)) {
+        try { rmSync(f); } catch {}
+      }
+    }
+    _resetCache();
+  });
 
   // ── isPro ──────────────────────────────────────────────────────────────────
 
