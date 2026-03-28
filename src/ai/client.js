@@ -48,16 +48,24 @@ export function hasAIKey() {
  * Throws on API errors.
  */
 export async function callAI(systemPrompt, userPrompt, options = {}) {
+  const maxTokens = options.maxTokens || 1000;
+
+  if (options.uncensored) {
+    const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
+    // We default to llama3 for uncensored local OSINT if the user hasn't specified one
+    const model = process.env.OLLAMA_MODEL || 'llama3';
+    return callOllama(host, model, systemPrompt, userPrompt, maxTokens);
+  }
+
   const aiConfig = getAIConfig();
   if (!aiConfig) {
     throw new Error(
       'No AI API key configured. Set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
-      'or add ai.api_key to ~/.intelwatch/config.yml'
+      'or add ai.api_key to ~/.intelwatch/config.yml. Use --uncensored for local Ollama.'
     );
   }
 
   const { provider, apiKey, model } = aiConfig;
-  const maxTokens = options.maxTokens || 1000;
 
   if (provider === 'google') {
     return callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens);
@@ -165,4 +173,37 @@ async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens) {
     throw new Error('Invalid Google API response');
   }
   return data.candidates[0].content.parts[0].text.trim();
+}
+
+async function callOllama(host, model, systemPrompt, userPrompt, maxTokens) {
+  const url = `${host.replace(/\/$/, '')}/api/chat`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      stream: false,
+      options: {
+        num_ctx: 16384,
+        num_predict: maxTokens
+      }
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Ollama API ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.message || !data.message.content) {
+    throw new Error('Invalid Ollama API response');
+  }
+  return data.message.content.trim();
 }

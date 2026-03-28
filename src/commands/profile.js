@@ -547,7 +547,7 @@ export async function runMA(sirenOrName, options) {
   let aiAnalysis = null;
   if (options.ai) {
     section('  🤖 Analyse IA — Due Diligence');
-    if (!hasAIKey()) {
+    if (!hasAIKey() && !options.uncensored) {
       warn('     No AI API key. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.');
     } else {
       console.log(chalk.gray('  Generating AI due diligence analysis (JSON)...'));
@@ -818,7 +818,7 @@ OBLIGATOIRE :
   - aiComment: 3-4 sentences. Compare deposited (62M€ 2024) vs announced/projected. Be specific. If multiple revenue targets exist (e.g. 100M€ and 300M€), explain both.
   - aiComment: 3-4 sentences comparing deposited vs announced/projected, discussing growth sustainability and outlook`;
 
-        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192 });
+        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192, uncensored: options.uncensored });
         aiAnalysis = extractAIJSON(raw);
 
         // M&A History: Merging code-built events with AI events instead of overwriting

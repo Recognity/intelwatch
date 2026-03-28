@@ -1,6 +1,6 @@
 # Intelwatch Deep Profile — Roadmap Premium
 
-## Current (v1.1.x — Shipped)
+## Current (v1.3.x — Shipped)
 - [x] Identity + finances 5 ans + consolidé groupe
 - [x] Filiales via recherche-dirigeants + CA/résultat
 - [x] Représentants / actionnariat
@@ -22,25 +22,25 @@
 - [x] **Article scraping for M&A depth** — top 5 articles (2000 chars), content injected into AI
 - [x] **Key date extraction from articles** — regex code-side, authoritative dates
 - [x] **FLI code-built revenue target** — scans all articles, picks highest announced target, overrides AI
-- [x] **Stale year warning** — red ⚠️ badge on subsidiaries with data > 2 years old
+- [x] **Stale year warning** — red ⚠️ badge on subsidiaries avec data > 2 ans
+- [x] Export JSON/CSV/XLS structuré
+- [x] `--lang fr` option (PDF + AI prompts in French)
+- [x] **OpenCorporates** — filiales internationales
+- [x] **Smart Routing & International Pivot** — Apollo.io + Clearbit + OpenCorporates
+- [x] OSINT scraping (Reddit, HackerNews)
+- [x] Freemium gate (Free vs Pro) + license key check
+- [x] Fix forces/faiblesses vides en terminal (parsing JSON)
+- [x] Commit + npm publish as `intelwatch@1.3.x`
 
-## v1.2 — Next Release
-- [ ] Fix forces/faiblesses vides en terminal (parsing JSON)
-- [ ] Export JSON/CSV structuré
-- [ ] `--lang fr` option (PDF + AI prompts in French)
+## V2 — Pro ($49/mo) — Next Releases
+- [ ] `intelwatch compare SIREN1 SIREN2` — côte à côte
+- [ ] **INPI integration** — brevets & marques du groupe (gratuit, data.inpi.fr)
+- [ ] **Annuaire Entreprises / data.gouv** — données complémentaires
+- [ ] `--preview` mode limité (identity + dernier exercice)
+- [ ] **BODACC détaillé enrichi** — timeline types d'actes, augmentations capital
 - [ ] Comparable transactions section (competitors' M&A/fundraising with article links)
 - [ ] Geographic implantations scraping from company website
 - [ ] Cross-reference press/journalists across sections
-- [ ] Commit + npm publish as `intelwatch@1.2.0`
-
-## V2 — Pro ($49/mo)
-- [ ] `intelwatch compare SIREN1 SIREN2` — côte à côte
-- [ ] **INPI integration** — brevets & marques du groupe (gratuit, data.inpi.fr)
-- [ ] **OpenCorporates** — filiales internationales (gratuit)
-- [ ] **Annuaire Entreprises / data.gouv** — données complémentaires
-- [ ] Freemium gate (3 profiles/jour) + license key
-- [ ] `--preview` mode limité (identity + dernier exercice)
-- [ ] **BODACC détaillé enrichi** — timeline types d'actes, augmentations capital
 
 ## V3 — Deep Profile ($299/mo)
 - [ ] **Graphe de liens** — visualisation SVG/HTML du réseau (Pappers graph-style)
@@ -64,7 +64,7 @@
 | Pappers | ✅ (BYOK) | ✅ API | v1.0 ✅ |
 | Brave Search | ✅ (BYOK) | ✅ API | v1.0 ✅ |
 | INPI (brevets/marques) | ✅ | ✅ data.inpi.fr | V2 |
-| OpenCorporates | ✅ | ✅ | V2 |
+| OpenCorporates | ✅ | ✅ | v1.3 ✅ |
 | Annuaire Entreprises | ✅ | ✅ data.gouv | V2 |
 | BODACC détaillé | ✅ | ✅ bodacc.fr | V2 |
 | Infogreffe | ❌ 3.80€/doc | API payante | V4 |
@@ -77,8 +77,8 @@
 ## Pricing
 | Tier | Prix | Limites | Features |
 |------|------|---------|----------|
-| Free | 0€ | 3 profiles/jour, `--preview` | Identity + last year only |
-| Pro | 49€/mo | Illimité | Full profile + AI + PDF + export + INPI + compare |
+| Free | 0€ | Bypass limites CSV | Identity + last year only |
+| Pro | 49€/mo | Illimité | Full profile + AI + PDF + export XLS + INPI + Reddit/HN |
 | Deep Profile | 299€/mo | Illimité | Tout Pro + graphe + alertes + batch + scoring |
 | Enterprise | Custom | Custom | Tout Deep + Infogreffe + SEMrush + API REST |
 

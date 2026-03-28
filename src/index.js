@@ -173,6 +173,7 @@ program
   .description('Deep company profile — due diligence report (requires Pro license)')
   .option('--preview', 'Run limited preview: company identity + last year financials only')
   .option('--ai', 'Generate an AI-powered due diligence summary (requires AI API key)')
+  .option('--uncensored', 'Run AI analysis on a local Ollama instance (uncensored OSINT)')
   .option('--format <type>', 'Output format: terminal (default) or pdf')
   .option('--output <path>', 'Output file path for PDF')
   .option('--export <format>', 'Export structured data (json, csv, xls, pdf)')
