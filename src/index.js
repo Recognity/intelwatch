@@ -138,10 +138,10 @@ program
 // ─── compare ──────────────────────────────────────────────────────────────────
 
 program
-  .command('compare <tracker1> <tracker2>')
-  .description('Side-by-side comparison of two competitor trackers')
-  .action((id1, id2) => {
-    runCompare(id1, id2);
+  .command('compare <id1> <id2>')
+  .description('Side-by-side comparison of two competitor trackers OR two company profiles (SIREN/SIRET)')
+  .action(async (id1, id2) => {
+    await runCompare(id1, id2);
   });
 
 // ─── ai-summary ───────────────────────────────────────────────────────────────

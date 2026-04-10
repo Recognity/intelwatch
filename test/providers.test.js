@@ -17,11 +17,13 @@ import {
 
 // Register providers
 import pappersProvider from '../src/providers/pappers.js';
+import annuaireEntreprisesProvider from '../src/providers/annuaire-entreprises.js';
 import opencorporatesProvider from '../src/providers/opencorporates.js';
 import clearbitProvider from '../src/providers/clearbit.js';
 import apolloProvider from '../src/providers/apollo.js';
 
 registerProvider('pappers', pappersProvider);
+registerProvider('annuaire-entreprises', annuaireEntreprisesProvider);
 registerProvider('opencorporates', opencorporatesProvider);
 registerProvider('clearbit', clearbitProvider);
 registerProvider('apollo', apolloProvider);

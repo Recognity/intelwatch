@@ -1,10 +1,10 @@
 import { scrapeSerp } from '../scrapers/google.js';
-import { searchKeywordRankings } from '../scrapers/brave-search.js';
+import { searchKeywordRankings } from '../scrapers/searxng-search.js';
 
 export async function runKeywordCheck(tracker) {
   const { keyword } = tracker;
 
-  // Try Brave Search API first
+  // Try SearXNG/Serper first
   let results = [];
   let error = null;
 
@@ -17,7 +17,7 @@ export async function runKeywordCheck(tracker) {
       }));
     }
   } catch (e) {
-    // Brave failed, try Google fallback
+    // SearXNG/Serper failed, try Google fallback
   }
 
   if (results.length === 0) {

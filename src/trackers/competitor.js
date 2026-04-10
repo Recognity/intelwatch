@@ -1,6 +1,6 @@
 import { analyzeSite, analyzeKeyPages } from '../scrapers/site-analyzer.js';
 import { scrapeNewsMentions } from '../scrapers/google-news.js';
-import { searchPressMentions, extractRatingsFromResults } from '../scrapers/brave-search.js';
+import { searchPressMentions, extractRatingsFromResults } from '../scrapers/searxng-search.js';
 import { lookupCompany, resolveProvider } from '../providers/registry.js';
 import { diffTechStacks } from '../utils/tech-detect.js';
 import { fetch } from '../utils/fetcher.js';
@@ -23,11 +23,11 @@ export async function runCompetitorCheck(tracker) {
   let reputation = { reviews: [], avgRating: null, platforms: [] };
 
   try {
-    // Try Brave Search API first (reliable, no rate limiting)
+    // Try SearXNG/Serper first (reliable, no rate limiting)
     const braveData = await searchPressMentions(brandName);
     
     if (!braveData.error && braveData.mentions.length > 0) {
-      // Brave API worked
+      // SearXNG/Serper API worked
       const allMentions = braveData.mentions;
       const pressArticles = allMentions.filter(m => m.category === 'press' || m.source === 'news');
       const forumMentions = allMentions.filter(m => m.category === 'forum' || m.category === 'social');

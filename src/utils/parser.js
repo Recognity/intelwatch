@@ -89,9 +89,11 @@ export function extractPricing($, html) {
   const planKeywords = ['starter', 'basic', 'pro', 'professional', 'business', 'enterprise', 'free', 'premium', 'plus'];
   const plans = [];
   for (const kw of planKeywords) {
-    const regex = new RegExp(`${kw}[^\\n]*?\\$[\\d,]+`, 'gi');
-    const matches = html.match(regex) || [];
-    plans.push(...matches.slice(0, 2));
+    // Rechercher dans le texte propre (au lieu du code HTML raw) pour éviter de capturer du code source
+    const textContent = $.text().replace(/\s+/g, ' ');
+    const regex = new RegExp(`(?:^|\\s)${kw}\\s[^$€£]{0,50}?[$€£][\\d,.]+`, 'gi');
+    const matches = textContent.match(regex) || [];
+    plans.push(...matches.slice(0, 2).map(m => m.trim()));
   }
 
   return {

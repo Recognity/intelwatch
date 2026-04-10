@@ -1,4 +1,4 @@
-import { braveNewsSearch, braveWebSearch, searchSocial } from '../scrapers/brave-search.js';
+import { newsSearch, webSearch, searchSocial } from '../scrapers/searxng-search.js';
 import { analyzeSentiment, categorizeMention } from '../utils/sentiment.js';
 
 export async function runPersonCheck(tracker) {
@@ -8,7 +8,7 @@ export async function runPersonCheck(tracker) {
   const mentions = [];
 
   // 1. News search
-  const news = await braveNewsSearch(personName, { freshness: 'pm' });
+  const news = await newsSearch(personName, { timeRange: 'month' });
   for (const r of news.results) {
     // Filter by org if provided (keep results that mention org or have no org context)
     if (org) {
@@ -31,7 +31,7 @@ export async function runPersonCheck(tracker) {
 
   // 2. Web search for recent mentions
   await new Promise(r => setTimeout(r, 500));
-  const web = await braveWebSearch(query, { freshness: 'pw' });
+  const web = await webSearch(query, { timeRange: 'week' });
   for (const r of web.results) {
     if (mentions.some(m => m.url === r.url)) continue;
     const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);

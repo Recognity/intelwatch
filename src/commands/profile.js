@@ -1,7 +1,8 @@
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import { pappersGetFullDossier, pappersSearchByName, pappersSearchSubsidiaries } from '../scrapers/pappers.js';
-import { searchPressMentions } from '../scrapers/brave-search.js';
+import { annuaireGetFullDossier, annuaireSearchByName } from '../scrapers/annuaire-entreprises.js';
+import { searchPressMentions } from '../scrapers/searxng-search.js';
 import { analyzeSite } from '../scrapers/site-analyzer.js';
 import { callAI, hasAIKey } from '../ai/client.js';
 import { header, section, warn, error } from '../utils/display.js';
@@ -9,24 +10,49 @@ import { generatePDF } from '@recognity/pdf-report';
 import { handleExport, formatForExport } from '../utils/export.js';
 import { setLanguage, getLanguage, t, getPrompt } from '../utils/i18n.js';
 import { isPro, printProUpgrade } from '../license.js';
+import { hasPappersKey } from '../scrapers/pappers.js';
+
+// ── Provider resolution: Pappers (Pro) → Annuaire Entreprises (free fallback) ──
+
+/**
+ * Resolve the FR company data provider.
+ * Returns { provider, providerName } where provider is the scraper module to use.
+ */
+function resolveFRProvider() {
+  if (isPro() && hasPappersKey()) {
+    return { providerName: 'pappers', searchByName: pappersSearchByName, getFullDossier: pappersGetFullDossier, searchSubsidiaries: pappersSearchSubsidiaries };
+  }
+  return { providerName: 'annuaire-entreprises', searchByName: annuaireSearchByName, getFullDossier: annuaireGetFullDossier, searchSubsidiaries: null };
+}
 
 export async function runMA(sirenOrName, options) {
   const hasLicense = isPro();
   const isPreview = !!options.preview;
+  const frProvider = resolveFRProvider();
+  const isFallbackProvider = frProvider.providerName === 'annuaire-entreprises';
   
   // Set language from global option (passed from main program)
   if (options.parent?.opts()?.lang) {
     setLanguage(options.parent.opts().lang);
   }
 
+  // ── Provider info ────────────────────────────────────────────────────────
+  if (isFallbackProvider) {
+    console.log(chalk.cyan('  ℹ Provider: Annuaire Entreprises (data.gouv.fr) — 100% gratuit'));
+    console.log(chalk.gray('    Données basiques Sirene (CA, effectifs, dirigeants, adresse, NAF).'));
+    console.log(chalk.gray('    UBO, BODACC, procédures collectives, mandats croisés non disponibles.'));
+    console.log('');
+  }
+
   // ── License gate ───────────────────────────────────────────────────────────
-  if (!hasLicense && !isPreview) {
+  // Annuaire Entreprises is free, so no license gate when using fallback
+  if (!isFallbackProvider && !hasLicense && !isPreview) {
     printProUpgrade('Deep Profile Due Diligence');
     console.log(chalk.gray('  Run with --preview for a limited preview (company identity + last year financials only).\n'));
     process.exit(1);
   }
 
-  if (isPreview && !hasLicense) {
+  if (!isFallbackProvider && isPreview && !hasLicense) {
     console.log(chalk.yellow('  ⚡ PREVIEW MODE — Company identity + last year financials only'));
     printProUpgrade('Full company profile');
   }
@@ -36,7 +62,7 @@ export async function runMA(sirenOrName, options) {
 
   if (!/^\d{9}$/.test(sirenOrName)) {
     console.log(chalk.gray(`  Searching for: "${sirenOrName}"...`));
-    const { results, error: searchErr } = await pappersSearchByName(sirenOrName, { count: 1 });
+    const { results, error: searchErr } = await frProvider.searchByName(sirenOrName, { count: 1 });
     if (searchErr || !results.length) {
       error(`Company not found: ${searchErr || 'No results'}`);
       process.exit(1);
@@ -48,10 +74,20 @@ export async function runMA(sirenOrName, options) {
 
   // ── Fetch full dossier ─────────────────────────────────────────────────────
   console.log(chalk.gray('  Loading company data...'));
-  const { data, error: dossierErr, fromCache } = await pappersGetFullDossier(siren);
+  const { data, error: dossierErr, fromCache } = await frProvider.getFullDossier(siren);
   if (fromCache) console.log(chalk.gray('  ✓ Loaded from cache (0 API credits)'));
 
   if (dossierErr || !data) {
+    // If Pappers returned 401, retry with Annuaire Entreprises fallback
+    if (!isFallbackProvider && dossierErr && /401|unauthorized|forbidden/i.test(dossierErr)) {
+      console.log(chalk.yellow('  ⚠ Pappers 401 — fallback vers l\'Annuaire Entreprises (data.gouv.fr)'));
+      const fallbackResult = await annuaireGetFullDossier(siren);
+      if (fallbackResult.error || !fallbackResult.data) {
+        error(`Failed to fetch dossier from both providers: ${dossierErr} / ${fallbackResult.error}`);
+        process.exit(1);
+      }
+      return renderDossier(fallbackResult.data, { ...options, isFallbackProvider: true, isPreview: true });
+    }
     error(`Failed to fetch dossier: ${dossierErr || 'Unknown error'}`);
     process.exit(1);
   }
@@ -59,7 +95,8 @@ export async function runMA(sirenOrName, options) {
   const { identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives } = data;
 
   // ── Header ─────────────────────────────────────────────────────────────────
-  header(`🏢 Due Diligence Deep Profile — ${identity.name || siren}`);
+  const providerTag = isFallbackProvider ? chalk.cyan(' [Annuaire Entreprises]') : '';
+  header(`🏢 Due Diligence Deep Profile — ${identity.name || siren}${providerTag}`);
 
   // ── Company Identity ───────────────────────────────────────────────────────
   section('  📋 Identité');
@@ -77,7 +114,7 @@ export async function runMA(sirenOrName, options) {
   if (identity.website) printRow('Site web', identity.website);
 
   // ── Preview mode stops here (one year of financials) ──────────────────────
-  if (isPreview) {
+  if (isPreview || isFallbackProvider) {
     const lastFin = financialHistory[0];
     section('  💶 Derniers résultats financiers (preview)');
     if (lastFin) {
@@ -89,8 +126,29 @@ export async function runMA(sirenOrName, options) {
       console.log(chalk.gray('     Données financières non disponibles.'));
     }
     console.log('');
-    console.log(chalk.yellow(`  ⚡ Accédez au rapport complet avec Intelwatch Deep Profile : ${LICENSE_URL}`));
+    if (isFallbackProvider) {
+      console.log(chalk.cyan('  ℹ Profil issu de l\'Annuaire Entreprises (data.gouv.fr) — données gratuites.'));
+      console.log(chalk.gray('    Pour les données complètes (UBO, BODACC, procédures, mandats), configurez PAPPERS_API_KEY.'));
+    } else {
+      console.log(chalk.yellow(`  ⚡ Accédez au rapport complet avec Intelwatch Deep Profile : ${LICENSE_URL}`));
+    }
     console.log('');
+
+    // When using fallback provider, only render available sections
+    if (isFallbackProvider) {
+      // Dirigeants (available from Annuaire)
+      if (dirigeants.length > 0) {
+        section(`  👔 Dirigeants (${dirigeants.length})`);
+        for (const d of dirigeants) {
+          const name = [d.prenom, d.nom].filter(Boolean).join(' ');
+          console.log('');
+          console.log('  ' + chalk.white.bold(name) + chalk.gray(` — ${d.role || '?'}`));
+        }
+        console.log('');
+      }
+      console.log(chalk.gray('  Sections non disponibles via Annuaire Entreprises: UBO, BODACC, procédures collectives, mandats croisés, filiales.'));
+      return;
+    }
     return;
   }
 
@@ -309,9 +367,9 @@ export async function runMA(sirenOrName, options) {
       // Additional M&A-focused search to catch acquisitions/deals (dorks: quality M&A sources only)
       const MA_SITE_DORKS = '(site:fusacq.com OR site:cfnews.net OR site:lesechos.fr OR site:maddyness.com OR site:agefi.fr)';
       try {
-        const { braveWebSearch } = await import('../scrapers/brave-search.js');
+        const { webSearch } = await import('../scrapers/searxng-search.js');
         await new Promise(r => setTimeout(r, 600));
-        const maSearch = await braveWebSearch(`"${brandName}" (acquisition OR LBO OR rachat OR "levée de fonds" OR "entrée au capital" OR "prise de participation") ${MA_SITE_DORKS}`, { count: 10 });
+        const maSearch = await webSearch(`"${brandName}" (acquisition OR LBO OR rachat OR "levée de fonds" OR "entrée au capital" OR "prise de participation") ${MA_SITE_DORKS}`, { count: 10 });
         for (const r of (maSearch.results || [])) {
           const text = ((r.title || '') + ' ' + (r.snippet || '')).toLowerCase();
           if (!text.includes(brandName.toLowerCase())) continue;
@@ -407,11 +465,11 @@ export async function runMA(sirenOrName, options) {
 
         // Company website M&A articles via Brave (more reliable than crawling)
         try {
-          const { braveWebSearch: braveSearch3 } = await import('../scrapers/brave-search.js');
+          const { webSearch } = await import('../scrapers/searxng-search.js');
           const domain = (() => { try { return new URL(companyDomain).hostname; } catch { return ''; } })();
           if (domain) {
             await new Promise(r => setTimeout(r, 600));
-            const siteSearch = await braveSearch3(
+            const siteSearch = await webSearch(
               `site:${domain} acquisition OR rapprochement OR capital OR croissance OR partenariat OR intègre`,
               { count: 10 },
             );
@@ -438,9 +496,9 @@ export async function runMA(sirenOrName, options) {
 
         // LinkedIn posts via Brave
         try {
-          const { braveWebSearch: braveSearch2 } = await import('../scrapers/brave-search.js');
+          const { webSearch } = await import('../scrapers/searxng-search.js');
           await new Promise(r => setTimeout(r, 600));
-          const linkedinSearch = await braveSearch2(
+          const linkedinSearch = await webSearch(
             `site:linkedin.com "${brandName}" acquisition OR croissance OR chiffre OR recrutement OR partenariat`,
             { count: 10 },
           );

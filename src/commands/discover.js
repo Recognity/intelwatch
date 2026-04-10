@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { fetch } from '../utils/fetcher.js';
 import { load, extractMeta } from '../utils/parser.js';
-import { braveWebSearch } from '../scrapers/brave-search.js';
+import { webSearch } from '../scrapers/searxng-search.js';
 import { callAI, hasAIKey } from '../ai/client.js';
 import { createTracker } from '../storage.js';
 import { header, section, success, warn, error } from '../utils/display.js';
@@ -75,7 +75,7 @@ export async function runDiscover(url, options) {
 
   for (const query of queries) {
     await new Promise(r => setTimeout(r, 600));
-    const { results, error: searchError } = await braveWebSearch(query, { count: 20 });
+    const { results, error: searchError } = await webSearch(query, { count: 20 });
     if (searchError) {
       warn(`  Search error for "${query}": ${searchError}`);
       continue;
@@ -105,7 +105,7 @@ export async function runDiscover(url, options) {
   }
 
   if (candidates.size === 0) {
-    warn('No competitors found. Check that BRAVE_API_KEY is set and the URL is reachable.');
+    warn('No competitors found. Check that SEARXNG_URL or SERPER_API_KEY is set and the URL is reachable.');
     return;
   }
 
