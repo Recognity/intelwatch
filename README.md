@@ -11,6 +11,8 @@
 
 ```bash
 npm install -g intelwatch
+intelwatch setup
+
 # or run directly without installing:
 npx intelwatch profile kpmg.fr --ai
 ```

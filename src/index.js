@@ -12,6 +12,7 @@ import { listTrackers, removeTrackerCmd } from './commands/list.js';
 import { runAISummary } from './commands/ai-summary.js';
 import { runPitch } from './commands/pitch.js';
 import { runMA } from './commands/profile.js';
+import { runSetup } from './commands/setup.js';
 import { saveLicenseKey, isPro, _resetCache } from './license.js';
 import chalk from 'chalk';
 
@@ -204,6 +205,16 @@ program
     } else {
       console.log('Use `intelwatch notify --setup` to configure notifications.');
     }
+  });
+
+// ─── setup ────────────────────────────────────────────────────────────────────
+
+program
+  .command('setup')
+  .alias('init')
+  .description('Interactive setup wizard — configure API keys and search provider')
+  .action(async () => {
+    await runSetup();
   });
 
 // ─── auth ─────────────────────────────────────────────────────────────────────
