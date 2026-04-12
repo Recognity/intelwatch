@@ -11,7 +11,7 @@ import { setupNotifications } from './commands/notify.js';
 import { listTrackers, removeTrackerCmd } from './commands/list.js';
 import { runAISummary } from './commands/ai-summary.js';
 import { runPitch } from './commands/pitch.js';
-import { runMA } from './commands/profile.js';
+import { runMA } from './commands/profile/index.js';
 import { runSetup } from './commands/setup.js';
 import { saveLicenseKey, isPro, _resetCache } from './license.js';
 import chalk from 'chalk';

@@ -410,7 +410,7 @@ export function extractRatingsFromResults(results) {
     // Google reviews pattern
     if (/google/.test(text) && /avis|review/.test(text)) {
       const ratingMatch = text.match(/(\d[.,]\d)\s*(?:\/\s*5|sur\s*5|stars?|étoiles?)/);
-      const countMatch = text.match(/([\d\s,.]+)\s*(?:avis|reviews?|évaluations?)/);
+      const countMatch = text.match(/(\d[\d\s,.]*)\s*(?:avis|reviews?|évaluations?)/);
       if (ratingMatch) {
         platforms.push({
           name: 'Google',

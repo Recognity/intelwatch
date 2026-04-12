@@ -377,54 +377,115 @@ export async function pappersSearchSubsidiaries(parentName, parentSiren) {
   }
 }
 
+/**
+ * P2 FIX: Batch cache reads upfront, then parallel API calls for uncached entities.
+ * Previously: N entities × (1 cache read + 1 API call + 1 cache write) = 3N sequential I/O ops.
+ * Now: 1 batch cache read + parallel API calls (concurrency 5) + 1 batch cache write.
+ */
 async function fetchSubsidiaryDetails(apiKey, entities) {
-  const subsidiaries = [];
+  // Step 1: Batch read all cache entries upfront (eliminates N individual cache reads)
+  const cacheEntries = new Map();
   for (const e of entities) {
-    try {
-      // Check cache first to save API credits
-      const cached = getCached(e.siren);
-      let d;
-      if (cached?.identity) {
-        // Reconstruct from cached full dossier
-        d = { nom_entreprise: cached.identity.name, code_naf: cached.identity.nafCode, libelle_code_naf: cached.identity.nafLabel, siege: { ville: cached.identity.ville }, effectif: cached.identity.effectifTexte, entreprise_cessee: false, date_creation: cached.identity.dateCreation, finances: cached.financialHistory?.map(f => ({ chiffre_affaires: f.ca, resultat: f.resultat, annee: f.annee })) || [] };
-      } else {
+    cacheEntries.set(e.siren, getCached(e.siren));
+  }
+
+  // Step 2: Separate cached vs uncached entities
+  const cached = [];
+  const uncached = [];
+  for (const e of entities) {
+    const entry = cacheEntries.get(e.siren);
+    if (entry?.identity) {
+      cached.push({ entity: e, data: reconstructFromCache(entry, e) });
+    } else {
+      uncached.push(e);
+    }
+  }
+
+  // Step 3: Parallel API calls for uncached entities (concurrency limit of 5)
+  const CONCURRENCY = 5;
+  const fetched = [];
+  for (let i = 0; i < uncached.length; i += CONCURRENCY) {
+    const batch = uncached.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (e) => {
         const det = await axios.get(`${PAPPERS_API}/entreprise`, {
           params: { api_token: apiKey, siren: e.siren },
           timeout: 10000,
         });
-        d = det.data;
-        // Cache subsidiary data to avoid re-fetching
-        setCache(e.siren, {
-          identity: { name: d.nom_entreprise, nafCode: d.code_naf, nafLabel: d.libelle_code_naf, ville: d.siege?.ville, effectifTexte: d.effectif, dateCreation: d.date_creation },
-          financialHistory: (d.finances || []).map(f => ({ ca: f.chiffre_affaires, resultat: f.resultat, annee: f.annee })),
-          _subCache: true,
-        });
+        return { entity: e, apiData: det.data };
+      })
+    );
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        fetched.push(result.value);
+      } else {
+        // Find corresponding entity from batch
+        const idx = results.indexOf(result);
+        fetched.push({ entity: batch[idx], apiData: null });
       }
-      const fin = (d.finances || [])[0] || {};
+    }
+  }
+
+  // Step 4: Batch cache write for all newly fetched entities
+  for (const { entity, apiData } of fetched) {
+    if (!apiData) continue;
+    setCache(entity.siren, {
+      identity: { name: apiData.nom_entreprise, nafCode: apiData.code_naf, nafLabel: apiData.libelle_code_naf, ville: apiData.siege?.ville, effectifTexte: apiData.effectif, dateCreation: apiData.date_creation },
+      financialHistory: (apiData.finances || []).map(f => ({ ca: f.chiffre_affaires, resultat: f.resultat, annee: f.annee })),
+      _subCache: true,
+    });
+  }
+
+  // Step 5: Build subsidiary list from cached + fetched
+  const subsidiaries = [];
+  for (const { entity, data } of cached) {
+    subsidiaries.push(buildSubsidiaryEntry(entity, data));
+  }
+  for (const { entity, apiData } of fetched) {
+    if (apiData) {
+      subsidiaries.push(buildSubsidiaryEntry(entity, apiData));
+    } else {
       subsidiaries.push({
-        siren: e.siren,
-        name: d.nom_entreprise || d.denomination || e.nom_entreprise || '?',
-        naf: d.code_naf || '',
-        nafLabel: d.libelle_code_naf || '',
-        ville: d.siege?.ville || '',
-        effectif: d.effectif || '',
-        ca: fin.chiffre_affaires ?? null,
-        resultat: fin.resultat ?? null,
-        annee: fin.annee || null,
-        status: d.entreprise_cessee ? 'Cessée' : 'Active',
-        dateCreation: d.date_creation || null,
-      });
-    } catch (_) {
-      subsidiaries.push({
-        siren: e.siren,
-        name: e.nom_entreprise || e.denomination || '?',
-        ville: e.siege?.ville || '',
+        siren: entity.siren,
+        name: entity.nom_entreprise || entity.denomination || '?',
+        ville: entity.siege?.ville || '',
         ca: null, resultat: null, effectif: '', annee: null, status: '?',
       });
     }
   }
+
   subsidiaries.sort((a, b) => (b.ca || 0) - (a.ca || 0));
   return subsidiaries;
+}
+
+function reconstructFromCache(cached, entity) {
+  return {
+    nom_entreprise: cached.identity.name,
+    code_naf: cached.identity.nafCode,
+    libelle_code_naf: cached.identity.nafLabel,
+    siege: { ville: cached.identity.ville },
+    effectif: cached.identity.effectifTexte,
+    entreprise_cessee: false,
+    date_creation: cached.identity.dateCreation,
+    finances: cached.financialHistory?.map(f => ({ chiffre_affaires: f.ca, resultat: f.resultat, annee: f.annee })) || [],
+  };
+}
+
+function buildSubsidiaryEntry(entity, d) {
+  const fin = (d.finances || [])[0] || {};
+  return {
+    siren: entity.siren,
+    name: d.nom_entreprise || d.denomination || entity.nom_entreprise || '?',
+    naf: d.code_naf || '',
+    nafLabel: d.libelle_code_naf || '',
+    ville: d.siege?.ville || '',
+    effectif: d.effectif || '',
+    ca: fin.chiffre_affaires ?? null,
+    resultat: fin.resultat ?? null,
+    annee: fin.annee || null,
+    status: d.entreprise_cessee ? 'Cessée' : 'Active',
+    dateCreation: d.date_creation || null,
+  };
 }
 
 // ── Local cache to save API credits ──────────────────────────────────────────
