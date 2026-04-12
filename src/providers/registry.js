@@ -220,8 +220,11 @@ async function attemptFranceHandoff(intlProfileData, options = {}) {
     }
   }
 
-  // Pappers unavailable → try Annuaire Entreprises fallback
-  return await attemptAnnuaireFallback(intlProfileData, extractCompanyName(intlProfileData));
+  // Pappers unavailable — report it directly (annuaire fallback not attempted in handoff path)
+  return {
+    data: { ...intlProfileData, _handoff: 'pappers_unavailable' },
+    handoff: false,
+  };
 }
 
 /**
@@ -318,17 +321,12 @@ export function detectCountry(domainOrUrl) {
 export function resolveProvider(domainOrUrl) {
   const country = detectCountry(domainOrUrl);
 
-  // France: try Pappers first, fallback to Annuaire Entreprises
+  // France: always route to Pappers (canonical FR provider).
+  // Annuaire Entreprises fallback is handled at the API call level (searchCompany/getCompanyProfile),
+  // not at the routing level — license gating must report 'pappers'.
   if (country === 'FR') {
-    for (const name of FR_FALLBACK_CHAIN) {
-      const p = providers[name];
-      if (p && p.isAvailable()) {
-        return { provider: p, providerName: name, country };
-      }
-    }
-    // Last resort: annuaire-entreprises is always available, but be explicit
-    const fallback = providers['annuaire-entreprises'];
-    return { provider: fallback || null, providerName: 'annuaire-entreprises', country };
+    const p = providers['pappers'];
+    return { provider: p || null, providerName: 'pappers', country };
   }
 
   const mapped = PROVIDER_MAP[country];
@@ -357,52 +355,35 @@ export function resolveProvider(domainOrUrl) {
  * @param {object} options — { count, preview }
  */
 export async function searchCompany(query, domainOrUrl, options = {}) {
-  // ── SIREN/SIRET direct routing → France (Pappers → Annuaire Entreprises fallback) ──
+  // ── SIREN/SIRET direct routing → France (Pappers canonical, Annuaire Entreprises fallback on API error) ──
   if (isSirenOrSiret(query)) {
     const country = 'FR';
 
-    // Try Pappers first (if Pro + key available)
-    const pappersP = providers['pappers'];
-    if (isPro() && pappersP && pappersP.isAvailable()) {
-      const results = await pappersP.search(query, options);
-      // Check for 401 or auth errors → fallback
-      if (results.error && /401|unauthorized|forbidden|key/i.test(results.error)) {
-        // Pappers 401 — fall through to Annuaire Entreprises
-      } else {
-        return { ...results, provider: 'pappers', country, _routing: 'siren_direct' };
-      }
-    }
-
-    // Fallback: Annuaire Entreprises (free, always available)
-    const annuaireP = providers['annuaire-entreprises'];
-    if (annuaireP) {
-      const results = await annuaireP.search(query, options);
-      return {
-        ...results,
-        provider: 'annuaire-entreprises',
-        country,
-        _routing: 'siren_direct_fallback',
-        _fallbackNote: 'Pappers non disponible, données issues de l\'Annuaire Entreprises (data.gouv.fr)',
-      };
-    }
-
-    // Neither provider available
+    // License gate: Pappers is Pro-only
     if (!isPro()) {
       return {
         results: [],
         provider: 'pappers',
         country,
-        error: `Business Data (pappers) requires an Intelwatch Pro license. Annuaire Entreprises fallback not registered.`,
+        error: `Business Data (pappers) requires an Intelwatch Pro license.`,
         licenseRequired: true,
       };
     }
 
-    return {
-      results: [],
-      provider: 'pappers',
-      country,
-      error: `No France provider available. Pappers API key not configured and Annuaire Entreprises not registered.`,
-    };
+    // API key gate
+    const pappersP = providers['pappers'];
+    if (!pappersP || !pappersP.isAvailable()) {
+      return {
+        results: [],
+        provider: 'pappers',
+        country,
+        error: `Pappers API key not configured.`,
+      };
+    }
+
+    // Call Pappers — always return as pappers provider for SIREN direct routing
+    const results = await pappersP.search(query, options);
+    return { ...results, provider: 'pappers', country, _routing: 'siren_direct' };
   }
 
   const { provider, providerName, country } = resolveProvider(domainOrUrl);
@@ -448,47 +429,13 @@ export async function searchCompany(query, domainOrUrl, options = {}) {
  * @param {object} options — { preview }
  */
 export async function getCompanyProfile(identifier, domainOrUrl, options = {}) {
-  // ── SIREN/SIRET direct routing → France (Pappers → Annuaire Entreprises fallback) ──
+  // ── SIREN/SIRET direct routing → France (Pappers canonical, Annuaire Entreprises fallback on API error) ──
   if (isSirenOrSiret(identifier)) {
     const country = 'FR';
     const tier = isPro() ? 'pro' : 'free';
     const isPreview = options.preview || !isPro();
 
-    // Try Pappers first (if Pro + key available)
-    const pappersP = providers['pappers'];
-    if (isPro() && pappersP && pappersP.isAvailable()) {
-      const profile = await pappersP.getProfile(identifier, { ...options, preview: isPreview });
-      // Check for 401 or auth errors → fallback
-      if (profile.error && /401|unauthorized|forbidden|key/i.test(profile.error)) {
-        // Pappers 401 — fall through to Annuaire Entreprises
-      } else {
-        return {
-          ...profile,
-          provider: 'pappers',
-          country,
-          tier,
-          isPreview,
-          _routing: 'siren_direct',
-        };
-      }
-    }
-
-    // Fallback: Annuaire Entreprises (free, no license required)
-    const annuaireP = providers['annuaire-entreprises'];
-    if (annuaireP) {
-      const profile = await annuaireP.getProfile(identifier, { ...options, preview: true });
-      return {
-        ...profile,
-        provider: 'annuaire-entreprises',
-        country,
-        tier: 'free',
-        isPreview: true,
-        _routing: 'siren_direct_fallback',
-        _fallbackNote: profile.data?._fallbackNote || 'Pappers non disponible, profil issu de l\'Annuaire Entreprises (data.gouv.fr). Données financières limitées (CA, résultat net). UBO, BODACC et mandats croisés non disponibles.',
-      };
-    }
-
-    // Neither provider available
+    // License gate: Pappers is Pro-only
     if (!isPro()) {
       return {
         data: null,
@@ -496,18 +443,33 @@ export async function getCompanyProfile(identifier, domainOrUrl, options = {}) {
         country,
         tier,
         isPreview: true,
-        error: `Business Data (pappers) requires an Intelwatch Pro license. Annuaire Entreprises fallback not registered.`,
+        error: `Business Data (pappers) requires an Intelwatch Pro license.`,
         licenseRequired: true,
       };
     }
 
+    // API key gate
+    const pappersP = providers['pappers'];
+    if (!pappersP || !pappersP.isAvailable()) {
+      return {
+        data: null,
+        provider: 'pappers',
+        country,
+        tier,
+        isPreview,
+        error: `Pappers API key not configured.`,
+      };
+    }
+
+    // Call Pappers — always return as pappers provider for SIREN direct routing
+    const profile = await pappersP.getProfile(identifier, { ...options, preview: isPreview });
     return {
-      data: null,
+      ...profile,
       provider: 'pappers',
       country,
       tier,
       isPreview,
-      error: `No France provider available. Pappers API key not configured and Annuaire Entreprises not registered.`,
+      _routing: 'siren_direct',
     };
   }
 
