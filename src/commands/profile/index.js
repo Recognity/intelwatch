@@ -120,10 +120,22 @@ export async function runMA(sirenOrName, options) {
         // Refresh stale subsidiary financials in parallel
         await refreshStaleSubsidiaries(subsidiariesData, consolidatedFinances);
 
+        // Discover real competitor candidates (Pappers registry + Exa press)
+        const consolidatedCa = consolidatedFinances?.[0]?.ca
+          || financialHistory?.[0]?.ca || null;
+        const { fetchCompetitorCandidates } = await import('./fetching.js');
+        const competitorCandidates = await fetchCompetitorCandidates(identity, consolidatedCa);
+        if (competitorCandidates.registry.length || competitorCandidates.press.length) {
+          console.log(chalk.gray(
+            `    Competitor candidates: ${competitorCandidates.registry.length} from Pappers registry, ${competitorCandidates.press.length} from Exa press`
+          ));
+        }
+
         const promptCtx = buildAIPromptContext({
           identity, financialHistory, consolidatedFinances, dirigeants, ubo, bodacc,
           representants, proceduresCollectives, subsidiariesData, pressResults,
           scrapedMaContent, codeBuiltMaHistory, rawGrowthData, growthDataSource,
+          competitorCandidates,
         });
 
         const { systemPrompt, userPrompt } = buildAIPrompts(identity, siren, promptCtx, codeBuiltMaHistory, options);

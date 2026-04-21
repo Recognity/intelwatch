@@ -24,7 +24,7 @@ export function computeGrowthData(consolidatedFinances, financialHistory) {
 /**
  * Build the AI prompt context strings.
  */
-export function buildAIPromptContext({ identity, financialHistory, consolidatedFinances, dirigeants, ubo, bodacc, representants, proceduresCollectives, subsidiariesData, pressResults, scrapedMaContent, codeBuiltMaHistory, rawGrowthData, growthDataSource }) {
+export function buildAIPromptContext({ identity, financialHistory, consolidatedFinances, dirigeants, ubo, bodacc, representants, proceduresCollectives, subsidiariesData, pressResults, scrapedMaContent, codeBuiltMaHistory, rawGrowthData, growthDataSource, competitorCandidates }) {
   const finSummary = financialHistory
     .map(f => `${f.annee}: CA=${f.ca != null ? formatEuro(f.ca) : 'N/A'}, Résultat=${f.resultat != null ? formatEuro(f.resultat) : 'N/A'}, CP=${f.capitauxPropres != null ? formatEuro(f.capitauxPropres) : 'N/A'}`)
     .join('\n') || 'Non disponible';
@@ -109,7 +109,27 @@ export function buildAIPromptContext({ identity, financialHistory, consolidatedF
     ? representants.map(r => `- ${r.personneMorale ? '[PM]' : '[PP]'} ${r.nom} — ${r.qualite}${r.siren ? ' (SIREN: ' + r.siren + ')' : ''}`).join('\n')
     : 'Non disponible';
 
-  return { finSummary, consFinSummary, dirStr, uboStr, subsStr, bodaccStr, pressStr, procStr, repStr, rawGrowthData, growthDataSource, pressResults, scrapedMaContent, subsidiariesData };
+  // ── Concurrents candidats (Pappers registry + Exa press) ──
+  const registryCompetitors = competitorCandidates?.registry || [];
+  const pressCompetitors = competitorCandidates?.press || [];
+  const competitorRegistryStr = registryCompetitors.length
+    ? registryCompetitors.map(c => {
+        const ca = c.ca != null ? formatEuro(c.ca) : '?';
+        const year = c.caYear ? ` (${c.caYear})` : '';
+        const eff = c.effectif ? ` | eff ${c.effectif}` : '';
+        const ville = c.ville ? ` | ${c.ville}` : '';
+        return `- ${c.name} (SIREN ${c.siren}) — CA ${ca}${year}${eff}${ville} | NAF ${c.naf}`;
+      }).join('\n')
+    : 'Aucun pair identifié dans le registre Pappers sur ce code NAF.';
+  const competitorPressStr = pressCompetitors.length
+    ? pressCompetitors.map(c => {
+        const date = c.publishedDate ? c.publishedDate.slice(0, 10) : '?';
+        const snippet = (c.snippet || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+        return `- [${date}] ${c.title}\n    ${snippet}\n    URL: ${c.url}`;
+      }).join('\n')
+    : 'Aucune mention presse de concurrent explicitement identifiée.';
+
+  return { finSummary, consFinSummary, dirStr, uboStr, subsStr, bodaccStr, pressStr, procStr, repStr, rawGrowthData, growthDataSource, pressResults, scrapedMaContent, subsidiariesData, competitorRegistryStr, competitorPressStr, registryCompetitors, pressCompetitors };
 }
 
 /**

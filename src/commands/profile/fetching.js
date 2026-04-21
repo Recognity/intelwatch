@@ -278,6 +278,122 @@ async function scrapeArticle(url) {
   return { url, title, content: text, source: 'company-website' };
 }
 
+/**
+ * Découverte de concurrents réels — 2 canaux en parallèle :
+ *   1. Pappers /recherche : peers FR par NAF code (avec fallback élargi si niche).
+ *      Filtré par fourchette CA si dispo, dédup SIREN cible, trié par CA desc.
+ *   2. Exa semantic : recherche dans la presse des concurrents explicitement
+ *      mentionnés à côté de la cible. Capture les acteurs internationaux ou
+ *      hors-NAF (substitutes) que Pappers ne voit pas.
+ *
+ * Le résultat est passé à l'IA comme liste de candidats à ranker, PAS à
+ * inventer. Massivement plus fiable que la connaissance latente du LLM,
+ * surtout sur les niches (vinyle, imprimerie spécialisée, etc.).
+ */
+export async function fetchCompetitorCandidates(identity, consolidatedCa) {
+  const candidates = { registry: [], press: [] };
+  const targetSiren = identity.siren;
+  const nafCode = identity.nafCode || '';
+
+  // ── Canal 1 : Pappers /recherche par NAF ──
+  const pappersKey = process.env.PAPPERS_API_KEY;
+  if (pappersKey && nafCode) {
+    try {
+      const { default: axios } = await import('axios');
+      const params = {
+        api_token: pappersKey,
+        code_naf: nafCode,
+        par_page: 20,
+      };
+      // Fourchette CA si CA consolidé ou entité disponible
+      const caRef = consolidatedCa || null;
+      if (caRef && caRef > 0) {
+        params.chiffre_affaires_min = Math.max(0, Math.floor(caRef * 0.3));
+        params.chiffre_affaires_max = Math.ceil(caRef * 3);
+      }
+      const resp = await axios.get('https://api.pappers.fr/v2/recherche', {
+        params, timeout: 8000,
+      });
+      const hits = resp.data?.resultats || [];
+      candidates.registry = hits
+        .filter(h => String(h.siren) !== String(targetSiren))
+        .map(h => ({
+          name: h.nom_entreprise || h.denomination || '',
+          siren: h.siren,
+          ca: h.chiffre_affaires || null,
+          caYear: h.annee_finances || null,
+          effectif: h.tranche_effectif || h.effectif || null,
+          ville: h.siege?.ville || '',
+          naf: h.code_naf || nafCode,
+        }))
+        .sort((a, b) => (b.ca || 0) - (a.ca || 0))
+        .slice(0, 10);
+
+      // Si < 3 pairs dans la fourchette CA, élargis sans filtre CA
+      if (candidates.registry.length < 3) {
+        const resp2 = await axios.get('https://api.pappers.fr/v2/recherche', {
+          params: { api_token: pappersKey, code_naf: nafCode, par_page: 20 },
+          timeout: 8000,
+        });
+        const hits2 = resp2.data?.resultats || [];
+        const extra = hits2
+          .filter(h => String(h.siren) !== String(targetSiren))
+          .filter(h => !candidates.registry.some(c => c.siren === h.siren))
+          .map(h => ({
+            name: h.nom_entreprise || h.denomination || '',
+            siren: h.siren,
+            ca: h.chiffre_affaires || null,
+            caYear: h.annee_finances || null,
+            effectif: h.tranche_effectif || h.effectif || null,
+            ville: h.siege?.ville || '',
+            naf: h.code_naf || nafCode,
+          }))
+          .sort((a, b) => (b.ca || 0) - (a.ca || 0));
+        candidates.registry.push(...extra.slice(0, 10 - candidates.registry.length));
+      }
+    } catch (err) {
+      // pas bloquant — l'IA s'en sortira avec les candidats presse
+    }
+  }
+
+  // ── Canal 2 : Exa semantic press ──
+  const { hasExaKey, searchCompanyPressViaExa } = await import('../../scrapers/exa-search.js');
+  if (hasExaKey()) {
+    try {
+      const client = await import('axios');
+      // Recherche ciblée compétiteurs — un prompt différent de la presse générale
+      const resp = await client.default.post(
+        'https://api.exa.ai/search',
+        {
+          query: `concurrents de ${identity.name} ${identity.nafLabel || ''} France`,
+          numResults: 10,
+          type: 'auto',
+          useAutoprompt: true,
+          contents: {
+            text: { maxCharacters: 1500 },
+            highlights: { numSentences: 2, highlightsPerUrl: 2 },
+          },
+        },
+        {
+          headers: { 'x-api-key': process.env.EXA_API_KEY, 'Content-Type': 'application/json' },
+          timeout: 12000,
+        },
+      );
+      const hits = resp.data?.results || [];
+      candidates.press = hits.map(h => ({
+        title: h.title || '',
+        url: h.url,
+        snippet: (h.text || h.highlights?.join(' · ') || '').substring(0, 400),
+        publishedDate: h.publishedDate || null,
+      })).slice(0, 8);
+    } catch (err) {
+      // pas bloquant
+    }
+  }
+
+  return candidates;
+}
+
 async function fetchMaSearchResults(brandName, existingPressResults) {
   const MA_SITE_DORKS = '(site:fusacq.com OR site:cfnews.net OR site:lesechos.fr OR site:maddyness.com OR site:agefi.fr)';
   const results = [];

@@ -58,6 +58,12 @@ If distress signals exist, assess their impact on M&A attractiveness: is the com
 === PRESSE (${ctx.pressResults?.length || 0} mentions) ===
 ${ctx.pressStr}
 
+=== CONCURRENTS CANDIDATS — REGISTRE PAPPERS (${ctx.registryCompetitors?.length || 0} pairs FR avec même NAF) ===
+${ctx.competitorRegistryStr}
+
+=== CONCURRENTS CANDIDATS — MENTIONS PRESSE (via Exa) ===
+${ctx.competitorPressStr}
+
 === SCRAPED M&A ARTICLES (press sources) ===
 ${ctx.scrapedMaContent?.filter(a => a.source !== 'company-website' && a.source !== 'linkedin').length
   ? ctx.scrapedMaContent.filter(a => a.source !== 'company-website' && a.source !== 'linkedin').map(a => `--- ${a.title} (${a.url}) ---\n${a.content}`).join('\n\n')
@@ -107,7 +113,7 @@ Retourne ce JSON exact (remplace les valeurs par l'analyse réelle) :
     {"text": "2-3 sentences describing the weakness with specific evidence. Not generic.", "confidence": "confirmed_registry|confirmed_press", "sourceUrl": null}
   ],
   "competitors": [
-    {"name": "competitor name", "reason": "why they are a direct competitor (2-3 sentences)", "estimatedRevenue": "estimated revenue range", "summary": "3-4 sentences describing this competitor"}
+    {"name": "competitor name", "siren": "from Pappers list or null", "source": "pappers_registry|press_exa|adjacent_market", "reason": "why they are a direct competitor (2-3 sentences) — CRITICAL: explique ce qui les positionne sur le MÊME MARCHÉ PRODUIT (pas juste même NAF), point de contact avec la cible (clients communs, zone géo, segment)", "estimatedRevenue": "exact si dispo dans la liste registre, sinon fourchette", "summary": "3-4 sentences describing this competitor: activity, positioning vs target, relative size, any recent M&A/press signal"}
   ],
   "maHistory": [
     {"date": "YYYY-MM or YYYY", "type": "acquisition|cession|fusion|restructuration|capital_increase|creation", "target": "name of acquired/merged entity", "description": "2-3 sentences", "confidence": "confirmed_registry|confirmed_press|unconfirmed", "sourceUrl": "URL or null"}
@@ -148,7 +154,7 @@ Règles: confidence="confirmed_registry" si la donnée vient des données Papper
 
 OBLIGATOIRE :
 - ${getPrompt('strengthsWeaknessesRules')}
-- Minimum 5 concurrents de taille comparable (CA consolidé similaire, même code NAF ${identity.nafCode || ''})
+- CONCURRENTS : utilise PRIORITAIREMENT les candidats listés dans les sections "CONCURRENTS CANDIDATS — REGISTRE PAPPERS" et "CONCURRENTS CANDIDATS — MENTIONS PRESSE". Ne PAS inventer de concurrents. Si la liste Pappers a des SIREN, inclus le SIREN. Minimum 5 concurrents, ordre : d'abord les pairs Pappers de CA comparable, puis les concurrents presse qui apportent un angle différent (international, substitute, acteur émergent). Pour chaque concurrent, explique 2-3 phrases POURQUOI c'est un concurrent (même marché produit, même client type, même zone géo) — pas juste "même secteur NAF". Si la section "REGISTRE PAPPERS" contient seulement 1-2 pairs, c'est une niche — mentionne-le explicitement dans competitors et considère des substitutes/players adjacents.
 - Le score de santé doit être basé sur les finances CONSOLIDÉES si disponibles
 - BE EXTREMELY CONCISE. Use bullet points and short sentences. Max 30 words per field.
 - Ne mentionne JAMAIS que la holding a peu d'employés comme faiblesse — c'est normal pour une holding, les employés sont dans les filiales
