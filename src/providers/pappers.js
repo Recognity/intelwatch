@@ -20,7 +20,7 @@ const pappersProvider = {
   description: 'Pappers.fr — French company registry (SIREN, financials, BODACC, M&A)',
 
   /**
-   * Check if the Pappers MCP server is configured.
+   * Check if PAPPERS_API_KEY is set.
    */
   isAvailable() {
     return hasPappersKey();

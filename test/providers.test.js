@@ -1,11 +1,6 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { _resetCache } from '../src/license.js';
-import { _resetConfig } from '../src/mcp/config.js';
-
-// Isolate from user's real ~/.intelwatch/mcp.json so MCP availability tests
-// only see env-var state, not the host's persisted config.
-process.env.INTELWATCH_MCP_CONFIG_PATH = '/nonexistent/intelwatch-test-mcp.json';
 
 import {
   detectCountry,
@@ -36,10 +31,7 @@ registerProvider('apollo', apolloProvider);
 describe('Provider Registry', () => {
   afterEach(() => {
     delete process.env.INTELWATCH_PRO_KEY;
-    delete process.env.MCP_PAPPERS_URL;
-    delete process.env.MCP_ANNUAIRE_URL;
     _resetCache();
-    _resetConfig();
   });
 
   // ── detectCountry ────────────────────────────────────────────────────────
@@ -214,10 +206,9 @@ describe('Provider Registry', () => {
     });
 
     test('returns license error for .fr without Pro', async () => {
-      delete process.env.MCP_PAPPERS_URL;
+      delete process.env.PAPPERS_API_KEY;
       delete process.env.INTELWATCH_PRO_KEY;
       _resetCache();
-      _resetConfig();
       const result = await searchCompany('Test', 'https://test.fr');
       assert.ok(result.provider === 'pappers');
       assert.ok(result.licenseRequired === true, 'Should require license for Pappers');
@@ -271,31 +262,13 @@ describe('Provider Registry', () => {
 });
 
 describe('Individual Providers', () => {
-  afterEach(() => {
-    delete process.env.MCP_PAPPERS_URL;
-    delete process.env.MCP_ANNUAIRE_URL;
-    _resetConfig();
-  });
-
   describe('Pappers', () => {
-    test('isAvailable depends on MCP_PAPPERS_URL', () => {
-      delete process.env.MCP_PAPPERS_URL;
-      _resetConfig();
+    test('isAvailable depends on PAPPERS_API_KEY', () => {
+      delete process.env.PAPPERS_API_KEY;
       assert.equal(pappersProvider.isAvailable(), false);
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
-      _resetConfig();
+      process.env.PAPPERS_API_KEY = 'test';
       assert.equal(pappersProvider.isAvailable(), true);
-    });
-  });
-
-  describe('Annuaire Entreprises', () => {
-    test('isAvailable depends on MCP_ANNUAIRE_URL', () => {
-      delete process.env.MCP_ANNUAIRE_URL;
-      _resetConfig();
-      assert.equal(annuaireEntreprisesProvider.isAvailable(), false);
-      process.env.MCP_ANNUAIRE_URL = 'http://localhost:3001/mcp';
-      _resetConfig();
-      assert.equal(annuaireEntreprisesProvider.isAvailable(), true);
+      delete process.env.PAPPERS_API_KEY;
     });
   });
 
@@ -494,16 +467,14 @@ describe('Smart Routing', () => {
   describe('SIREN/SIRET Direct Routing', () => {
     afterEach(() => {
       delete process.env.INTELWATCH_PRO_KEY;
-      delete process.env.MCP_PAPPERS_URL;
+      delete process.env.PAPPERS_API_KEY;
       _resetCache();
-      _resetConfig();
     });
 
     test('SIREN query routes to pappers regardless of domain', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test';
       _resetCache();
-      _resetConfig();
       // Even with a .com domain, SIREN should route to pappers
       const result = await searchCompany('123456789', 'https://vadato.io');
       assert.equal(result.provider, 'pappers');
@@ -513,9 +484,8 @@ describe('Smart Routing', () => {
 
     test('SIRET query routes to pappers', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test';
       _resetCache();
-      _resetConfig();
       const result = await searchCompany('12345678901234', 'https://startup.io');
       assert.equal(result.provider, 'pappers');
       assert.equal(result._routing, 'siren_direct');
@@ -529,11 +499,10 @@ describe('Smart Routing', () => {
       assert.equal(result.licenseRequired, true);
     });
 
-    test('SIREN with Pro but no MCP server → not configured error', async () => {
+    test('SIREN with Pro but no PAPPERS_API_KEY → API key error', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
-      delete process.env.MCP_PAPPERS_URL;
+      delete process.env.PAPPERS_API_KEY;
       _resetCache();
-      _resetConfig();
       const result = await searchCompany('123456789', 'https://whatever.com');
       assert.equal(result.provider, 'pappers');
       assert.ok(result.error);
@@ -542,9 +511,8 @@ describe('Smart Routing', () => {
 
     test('getCompanyProfile with SIREN → pappers direct', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test';
       _resetCache();
-      _resetConfig();
       const result = await getCompanyProfile('123456789', 'https://something.io');
       assert.equal(result.provider, 'pappers');
       assert.equal(result.country, 'FR');
@@ -563,9 +531,8 @@ describe('Smart Routing', () => {
     afterEach(() => {
       delete process.env.INTELWATCH_PRO_KEY;
       delete process.env.APOLLO_API_KEY;
-      delete process.env.MCP_PAPPERS_URL;
+      delete process.env.PAPPERS_API_KEY;
       _resetCache();
-      _resetConfig();
       // Restore original methods
       if (originalApolloGetProfile) apolloProvider.getProfile = originalApolloGetProfile;
       if (originalPappersSearch) pappersProvider.search = originalPappersSearch;
@@ -575,9 +542,8 @@ describe('Smart Routing', () => {
     test('Apollo profile with country=France triggers Pappers handoff', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
       process.env.APOLLO_API_KEY = 'test-apollo';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test-pappers';
       _resetCache();
-      _resetConfig();
 
       // Mock Apollo getProfile → returns French company
       originalApolloGetProfile = apolloProvider.getProfile;
@@ -656,9 +622,8 @@ describe('Smart Routing', () => {
     test('Apollo profile with country=FR triggers handoff', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
       process.env.APOLLO_API_KEY = 'test-apollo';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test-pappers';
       _resetCache();
-      _resetConfig();
 
       originalApolloGetProfile = apolloProvider.getProfile;
       apolloProvider.getProfile = async () => ({
@@ -697,9 +662,8 @@ describe('Smart Routing', () => {
     test('Handoff graceful when Pappers search returns no match', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
       process.env.APOLLO_API_KEY = 'test-apollo';
-      process.env.MCP_PAPPERS_URL = 'http://localhost:3000/mcp';
+      process.env.PAPPERS_API_KEY = 'test-pappers';
       _resetCache();
-      _resetConfig();
 
       originalApolloGetProfile = apolloProvider.getProfile;
       apolloProvider.getProfile = async () => ({
@@ -728,9 +692,8 @@ describe('Smart Routing', () => {
     test('Handoff graceful when Pappers is unavailable', async () => {
       process.env.INTELWATCH_PRO_KEY = 'test';
       process.env.APOLLO_API_KEY = 'test-apollo';
-      delete process.env.MCP_PAPPERS_URL; // Pappers MCP not configured
+      delete process.env.PAPPERS_API_KEY; // Pappers not configured
       _resetCache();
-      _resetConfig();
 
       originalApolloGetProfile = apolloProvider.getProfile;
       apolloProvider.getProfile = async () => ({

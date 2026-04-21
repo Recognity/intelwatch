@@ -1,11 +1,9 @@
 /**
- * Annuaire Entreprises / data.gouv scraper — MCP-backed.
+ * Annuaire Entreprises / data.gouv scraper.
  *
- * All API calls go through the Annuaire MCP server.
- * No direct HTTP requests, no hardcoded URLs.
- *
- * MCP tools expected on the Annuaire server:
- *   - annuaire_search  { q, per_page }  → { results, total_results }
+ * Free, no API key required.
+ * API doc: https://api.recherche-entreprises.fr/docs
+ * Base URL: https://recherche-entreprises.api.gouv.fr
  *
  * Provides: SIREN, SIRET, dirigeants, adresse, NAF, effectifs,
  *           nature juridique, finances (CA, resultat_net), catégorie entreprise.
@@ -13,13 +11,21 @@
  *                   mandats croisés des dirigeants, etablissements multiples détaillés.
  */
 
+import axios from 'axios';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+
+/**
+ * Annuaire Entreprises est toujours disponible (API publique data.gouv.fr, pas de clé).
+ * Fonction exposée pour compatibilité avec les consommateurs qui conditionnaient l'usage
+ * sur une config MCP (désormais facultative).
+ */
+export function hasAnnuaireConfig() {
+  return true;
+}
 import { join } from 'path';
 import { homedir } from 'os';
-import { callMcpTool } from '../mcp/client.js';
-import { isMcpConfigured } from '../mcp/config.js';
 
-const MCP_SERVER = 'annuaire';
+const ANNUAIRE_API = 'https://recherche-entreprises.api.gouv.fr';
 
 // ── Local cache (7 days, same TTL as Pappers) ────────────────────────────────
 const CACHE_DIR = join(homedir(), '.intelwatch', 'cache', 'annuaire-entreprises');
@@ -44,68 +50,6 @@ function setCache(key, data) {
     ensureCacheDir();
     writeFileSync(join(CACHE_DIR, `${key}.json`), JSON.stringify({ ...data, _cachedAt: Date.now() }));
   } catch { /* silent */ }
-}
-
-/**
- * Check if the Annuaire MCP server is configured.
- */
-export function hasAnnuaireConfig() {
-  return isMcpConfigured(MCP_SERVER);
-}
-
-// ── Circuit Breaker ─────────────────────────────────────────────────────────
-const circuitBreaker = {
-  failures: 0,
-  lastFailure: 0,
-  open: false,
-  THRESHOLD: 3,
-  COOLDOWN: 60_000,
-
-  record() {
-    this.failures++;
-    this.lastFailure = Date.now();
-    if (this.failures >= this.THRESHOLD) {
-      this.open = true;
-      console.error(`[annuaire] Circuit breaker OPEN after ${this.failures} failures. Cooldown ${this.COOLDOWN / 1000}s.`);
-    }
-  },
-
-  recordSuccess() {
-    if (this.failures > 0) {
-      this.failures = 0;
-      this.open = false;
-    }
-  },
-
-  canRequest() {
-    if (!this.open) return true;
-    if (Date.now() - this.lastFailure > this.COOLDOWN) {
-      this.open = false;
-      this.failures = Math.max(0, this.failures - 1);
-      return true;
-    }
-    return false;
-  },
-};
-
-/**
- * Wrapped MCP tool call with circuit breaker.
- */
-async function annuaireCall(toolName, args, label) {
-  if (!circuitBreaker.canRequest()) {
-    return { data: null, error: 'Annuaire circuit breaker open — MCP server temporarily unavailable', cbBlocked: true };
-  }
-
-  try {
-    const data = await callMcpTool(MCP_SERVER, toolName, args);
-    circuitBreaker.recordSuccess();
-    return { data, error: null };
-  } catch (err) {
-    circuitBreaker.record();
-    const msg = err.message || 'MCP call failed';
-    console.error(`[annuaire] ${label || toolName} failed: ${msg}`);
-    return { data: null, error: msg };
-  }
 }
 
 // ── NAF code to label mapping (common codes) ─────────────────────────────────
@@ -231,55 +175,71 @@ function getNatureJuridiqueLabel(code) {
 }
 
 /**
- * Search companies by name via MCP.
+ * Search companies by name on Annuaire Entreprises.
  * @param {string} name
  * @param {{ count?: number }} options
  * @returns {Promise<{ results: Array, error: string|null }>}
  */
 export async function annuaireSearchByName(name, options = {}) {
-  if (!isMcpConfigured(MCP_SERVER)) return { results: [], error: 'Annuaire MCP server not configured' };
-
-  const { data, error } = await annuaireCall('annuaire_search', {
-    q: name,
-    per_page: options.count || 10,
-  }, `search(${name})`);
-
-  if (error) return { results: [], error };
-  const results = (data?.results || []).map(r => formatSearchResult(r));
-  return { results, error: null, total_results: data?.total_results || 0 };
+  try {
+    const resp = await axios.get(`${ANNUAIRE_API}/search`, {
+      params: {
+        q: name,
+        per_page: options.count || 10,
+        mtm_campaign: 'intelwatch',
+      },
+      timeout: 10000,
+    });
+    const results = (resp.data.results || []).map(r => formatSearchResult(r));
+    return { results, error: null, total_results: resp.data.total_results || 0 };
+  } catch (err) {
+    const msg = err.response?.status === 429
+      ? 'Rate limit exceeded (Annuaire Entreprises). Retry later.'
+      : err.message;
+    return { results: [], error: msg };
+  }
 }
 
 /**
- * Get company details by SIREN via MCP.
- * Uses the search tool with SIREN as query (exact match at position 0).
+ * Get company details by SIREN via Annuaire Entreprises search.
+ * Note: the API doesn't have a dedicated SIREN endpoint — we use the search endpoint
+ * with the SIREN as query, which returns exact match at position 0.
  * @param {string} siren
  * @returns {Promise<{ data: object|null, error: string|null }>}
  */
 export async function annuaireGetBySiren(siren) {
+  // Check cache
   const cached = getCached(siren);
   if (cached) return { data: cached, error: null, fromCache: true };
 
-  if (!isMcpConfigured(MCP_SERVER)) return { data: null, error: 'Annuaire MCP server not configured' };
+  try {
+    const resp = await axios.get(`${ANNUAIRE_API}/search`, {
+      params: {
+        q: siren,
+        per_page: 1,
+        mtm_campaign: 'intelwatch',
+      },
+      timeout: 10000,
+    });
 
-  const { data: resp, error } = await annuaireCall('annuaire_search', {
-    q: siren,
-    per_page: 1,
-  }, `get(${siren})`);
+    const results = resp.data.results || [];
+    if (results.length === 0) {
+      return { data: null, error: `SIREN ${siren} non trouvé sur l'Annuaire Entreprises.` };
+    }
 
-  if (error) return { data: null, error };
-
-  const results = resp?.results || [];
-  if (results.length === 0) {
-    return { data: null, error: `SIREN ${siren} non trouvé sur l'Annuaire Entreprises.` };
+    const data = formatProfile(results[0]);
+    setCache(siren, data);
+    return { data, error: null };
+  } catch (err) {
+    if (err.response?.status === 404) {
+      return { data: null, error: `SIREN ${siren} non trouvé.` };
+    }
+    return { data: null, error: err.message };
   }
-
-  const data = formatProfile(results[0]);
-  setCache(siren, data);
-  return { data, error: null };
 }
 
 /**
- * Get full company dossier by SIREN via MCP.
+ * Get full company dossier by SIREN.
  * Returns a normalized structure compatible with the Pappers dossier format
  * so that the profile command can render it seamlessly.
  * @param {string} siren
@@ -289,24 +249,28 @@ export async function annuaireGetFullDossier(siren) {
   const cached = getCached(`dossier_${siren}`);
   if (cached) return { data: cached, error: null, fromCache: true };
 
-  if (!isMcpConfigured(MCP_SERVER)) return { data: null, error: 'Annuaire MCP server not configured' };
+  try {
+    const resp = await axios.get(`${ANNUAIRE_API}/search`, {
+      params: {
+        q: siren,
+        per_page: 1,
+        mtm_campaign: 'intelwatch',
+      },
+      timeout: 10000,
+    });
 
-  const { data: resp, error } = await annuaireCall('annuaire_search', {
-    q: siren,
-    per_page: 1,
-  }, `dossier(${siren})`);
+    const results = resp.data.results || [];
+    if (results.length === 0) {
+      return { data: null, error: `SIREN ${siren} non trouvé sur l'Annuaire Entreprises.` };
+    }
 
-  if (error) return { data: null, error };
-
-  const results = resp?.results || [];
-  if (results.length === 0) {
-    return { data: null, error: `SIREN ${siren} non trouvé sur l'Annuaire Entreprises.` };
+    const raw = results[0];
+    const data = buildDossier(raw);
+    setCache(`dossier_${siren}`, data);
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err.message };
   }
-
-  const raw = results[0];
-  const data = buildDossier(raw);
-  setCache(`dossier_${siren}`, data);
-  return { data, error: null };
 }
 
 /**
