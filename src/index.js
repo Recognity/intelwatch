@@ -13,6 +13,7 @@ import { runAISummary } from './commands/ai-summary.js';
 import { runPitch } from './commands/pitch.js';
 import { runMA } from './commands/profile/index.js';
 import { runSetup } from './commands/setup.js';
+import { runScoreMA } from './commands/score-ma.js';
 import { saveLicenseKey, isPro, _resetCache } from './license.js';
 import chalk from 'chalk';
 
@@ -215,6 +216,18 @@ program
   .description('Interactive setup wizard — configure API keys and search provider')
   .action(async () => {
     await runSetup();
+  });
+
+// ─── score-ma ────────────────────────────────────────────────────────────────
+
+program
+  .command('score-ma <siren-or-name>')
+  .description('Prescriptive M&A scoring using Open Data (BODACC/Siren) and local LLM')
+  .option('--sector <niche>', 'Target sector/niche for contextual scoring')
+  .option('--json', 'Output structured JSON result')
+  .option('--output <path>', 'Save JSON output to file (implies --json)')
+  .action(async (sirenOrName, options) => {
+    await runScoreMA(sirenOrName, options);
   });
 
 // ─── auth ─────────────────────────────────────────────────────────────────────
