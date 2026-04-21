@@ -5,10 +5,10 @@ import { header, section, error, warn } from '../utils/display.js';
 import { callAI, hasAIKey, getAIConfig } from '../ai/client.js';
 
 export async function runAISummary(options = {}) {
-  if (!hasAIKey()) {
-    error('No AI API key configured.');
-    console.log(chalk.gray('Set OPENAI_API_KEY or ANTHROPIC_API_KEY env var, or add to ~/.intelwatch/config.yml:'));
-    console.log(chalk.gray('  ai:\n    api_key: sk-xxx\n    provider: openai  # or anthropic'));
+  const aiConfig = getAIConfig();
+  if (!aiConfig) {
+    error('No AI provider configured.');
+    console.log(chalk.gray('Vulcain Ollama should be the default. Check connectivity to 192.168.1.30:11434'));
     process.exit(1);
   }
 
@@ -29,7 +29,6 @@ export async function runAISummary(options = {}) {
     return;
   }
 
-  const aiConfig = getAIConfig();
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   header(`📊 Weekly Intelligence Brief — ${dateStr}`);

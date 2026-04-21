@@ -102,13 +102,21 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
         share: u.pourcentage ? `${u.pourcentage}%` : 'N/A',
         nationality: u.nationalite || '',
       })),
-      bodacc: (bodacc || []).slice(0, 15).map(b => ({
+      bodacc: (bodacc || []).slice(0, 20).map(b => ({
         date: b.date || '—', type: b.type || '—',
         description: (b.description && b.description.length > 140) ? b.description.substring(0, 140) + '...' : (b.description || ''),
         url: b.url || null,
+        distressType: b.distressType || null,
+        category: b.category || 'other',
+        severity: b.severity || 'info',
+        isDistress: b.isDistress || false,
       })),
       procedures: (proceduresCollectives || []).map(p => ({
         type: p.type || '—', date: p.date || '—', description: p.description || '',
+        procedureCategory: p.procedureCategory || 'other',
+        severity: p.severity || 'medium',
+        administrateur: p.administrateur || null,
+        mandataire: p.mandataire || null,
       })),
       press: pressMentions.length ? {
         total: pressMentions.length,

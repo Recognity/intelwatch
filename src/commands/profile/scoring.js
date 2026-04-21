@@ -54,16 +54,39 @@ export function buildAIPromptContext({ identity, financialHistory, consolidatedF
       `\n\nFor M&A history: each off-brand subsidiary represents a confirmed acquisition (confidence: confirmed_registry). Cross-reference with press articles and BODACC for acquisition dates.`
     : 'Aucune filiale identifiée';
 
-  const bodaccStr = bodacc.length
-    ? bodacc.slice(0, 30).map(b => `- [${b.date || '?'}] ${b.type}: ${b.description || ''}${b.details ? ' — ' + b.details : ''}`).join('\n')
-    : 'Aucune publication';
+  // BODACC — structured for M&A intelligence with distress flags
+  const distressBodacc = bodacc.filter(b => b.isDistress);
+  const normalBodacc = bodacc.filter(b => !b.isDistress);
+  let bodaccStr = '';
+  if (distressBodacc.length > 0) {
+    bodaccStr += `⚠ DISTRESS SIGNALS (${distressBodacc.length}):\n`;
+    bodaccStr += distressBodacc.map(b =>
+      `- [${b.date || '?'}] [${(b.distressType || '').replace(/_/g, ' ').toUpperCase()}] (severity: ${b.severity}) ${b.type}: ${b.description || ''}${b.details ? ' — ' + b.details : ''}${b.administration ? ' | Admin: ' + b.administration : ''}`
+    ).join('\n');
+    bodaccStr += '\n\n';
+  }
+  if (normalBodacc.length > 0) {
+    bodaccStr += `Publications courantes (${normalBodacc.length}):\n`;
+    bodaccStr += normalBodacc.slice(0, 25).map(b =>
+      `- [${b.date || '?'}] [${b.category || 'other'}] ${b.type}: ${b.description || ''}${b.details ? ' — ' + b.details : ''}`
+    ).join('\n');
+  }
+  if (!bodaccStr) bodaccStr = 'Aucune publication';
 
   const pressStr = pressResults.length
     ? pressResults.slice(0, 20).map(m => `- [${m.sentiment}] ${m.title || ''} (${m.domain || m.source || ''})${m.url ? ' — URL: ' + m.url : ''}`).join('\n')
     : 'Aucune mention';
 
+  // Procédures collectives — structured with severity and personnel
   const procStr = proceduresCollectives.length
-    ? proceduresCollectives.map(p => `- [${p.date || '?'}] ${p.type || '?'}: ${p.jugement || ''}`).join('\n')
+    ? proceduresCollectives.map(p => {
+      const badge = p.procedureCategory && p.procedureCategory !== 'other' ? `[${p.procedureCategory.toUpperCase()}]` : '';
+      const sev = p.severity ? `(severity: ${p.severity})` : '';
+      const admin = p.administrateur ? ` | Administrateur: ${p.administrateur}` : '';
+      const mandataire = p.mandataire ? ` | Mandataire: ${p.mandataire}` : '';
+      const dates = [p.dateDebut && `début: ${p.dateDebut}`, p.dateFin && `fin: ${p.dateFin}`].filter(Boolean).join(', ');
+      return `- [${p.date || '?'}] ${badge} ${sev} ${p.type || '?'}: ${p.jugement || ''}${admin}${mandataire}${dates ? ' | ' + dates : ''}`;
+    }).join('\n')
     : 'Aucune';
 
   const repStr = representants?.length

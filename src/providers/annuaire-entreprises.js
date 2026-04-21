@@ -1,5 +1,5 @@
 /**
- * Annuaire Entreprises Provider — France only, 100% free, no API key.
+ * Annuaire Entreprises Provider — France only, MCP-backed.
  *
  * Wraps the src/scrapers/annuaire-entreprises.js into the provider interface.
  * This is the zero-cost fallback when Pappers is unavailable or returns 401.
@@ -17,18 +17,19 @@ import {
   annuaireGetBySiren,
   annuaireGetFullDossier,
   annuaireLookup,
+  hasAnnuaireConfig,
 } from '../scrapers/annuaire-entreprises.js';
 
 const annuaireEntreprisesProvider = {
   name: 'annuaire-entreprises',
   country: 'FR',
-  description: 'Annuaire Entreprises (data.gouv.fr) — French company registry, 100% free, no API key required',
+  description: 'Annuaire Entreprises (data.gouv.fr) — French company registry via MCP server',
 
   /**
-   * Always available — this is a free, public API with no authentication.
+   * Check if the Annuaire MCP server is configured.
    */
   isAvailable() {
-    return true;
+    return hasAnnuaireConfig();
   },
 
   /**

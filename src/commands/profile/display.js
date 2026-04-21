@@ -22,7 +22,7 @@ export function renderPreview(data, { isFallbackProvider }) {
   console.log('');
   if (isFallbackProvider) {
     console.log(chalk.cyan('  ℹ Profil issu de l\'Annuaire Entreprises (data.gouv.fr) — données gratuites.'));
-    console.log(chalk.gray('    Pour les données complètes (UBO, BODACC, procédures, mandats), configurez PAPPERS_API_KEY.'));
+    console.log(chalk.gray('    Pour les données complètes (UBO, BODACC, procédures, mandats), configurez le serveur MCP Pappers.'));
   } else {
     console.log(chalk.yellow(`  ⚡ Accédez au rapport complet avec Intelwatch Deep Profile`));
   }
@@ -68,13 +68,22 @@ export function renderIdentity(identity, siren, isFallbackProvider) {
 export function renderFullSections(data) {
   const { identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives } = data;
 
-  // Procédures collectives
+  // Procédures collectives — with severity badges
   if (proceduresCollectives.length > 0) {
     section('  🚨 Procédures collectives');
     for (const p of proceduresCollectives) {
       const label = [p.type, p.jugement].filter(Boolean).join(' — ');
       const loc = p.tribunal ? ` (${p.tribunal})` : '';
-      console.log(chalk.red(`     [${p.date || '?'}] ${label}${loc}`));
+      const sevColor = p.severity === 'critical' ? chalk.red.bold
+        : p.severity === 'high' ? chalk.red
+        : p.severity === 'medium' ? chalk.yellow
+        : chalk.gray;
+      const badge = p.procedureCategory && p.procedureCategory !== 'other'
+        ? sevColor(`[${p.procedureCategory.toUpperCase()}] `)
+        : '';
+      const admin = p.administrateur ? chalk.gray(` | Admin: ${p.administrateur}`) : '';
+      const mandataire = p.mandataire ? chalk.gray(` | Mandataire: ${p.mandataire}`) : '';
+      console.log(sevColor(`     [${p.date || '?'}] `) + badge + sevColor(label + loc) + admin + mandataire);
     }
   }
 
@@ -182,13 +191,26 @@ export function renderFullSections(data) {
     }
   }
 
-  // BODACC
+  // BODACC — with distress classification for M&A intelligence
   if (bodacc.length > 0) {
-    section(`  📰 Publications BODACC (${bodacc.length} dernières)`);
+    const distressCount = bodacc.filter(b => b.isDistress).length;
+    const distressTag = distressCount > 0 ? chalk.red(` — ${distressCount} signaux de difficulté`) : '';
+    section(`  📰 Publications BODACC (${bodacc.length} dernières${distressTag})`);
     for (const pub of bodacc) {
       const label = pub.description || pub.type || '?';
       const trib = pub.tribunal ? chalk.gray(` — ${pub.tribunal}`) : '';
-      console.log(chalk.gray(`     [${pub.date || '?'}] `) + chalk.white(label) + trib);
+
+      if (pub.isDistress) {
+        const sevColor = pub.severity === 'critical' ? chalk.red.bold
+          : pub.severity === 'high' ? chalk.red
+          : pub.severity === 'medium' ? chalk.yellow
+          : chalk.gray;
+        const distressLabel = pub.distressType ? pub.distressType.replace(/_/g, ' ').toUpperCase() : '';
+        console.log(sevColor(`  !! [${pub.date || '?'}] [${distressLabel}] `) + chalk.white(label) + trib);
+      } else {
+        const catBadge = pub.category !== 'other' ? chalk.blue(`[${pub.category}] `) : '';
+        console.log(chalk.gray(`     [${pub.date || '?'}] `) + catBadge + chalk.white(label) + trib);
+      }
     }
   }
 }

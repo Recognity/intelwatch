@@ -1,65 +1,190 @@
-import axios from 'axios';
+/**
+ * Pappers Scraper — MCP-backed.
+ *
+ * All API calls go through the Pappers MCP server.
+ * No direct HTTP requests, no hardcoded API keys or URLs.
+ *
+ * MCP tools expected on the Pappers server:
+ *   - pappers_search          { q, per_page }         → { resultats|entreprises }
+ *   - pappers_get_entreprise  { siren }               → full company object
+ *   - pappers_recherche_dirigeants { q, per_page }    → { resultats }
+ */
+
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { callMcpTool } from '../mcp/client.js';
+import { isMcpConfigured } from '../mcp/config.js';
 
-const PAPPERS_API = 'https://api.pappers.fr/v1';
-const PAPPERS_API_V2 = 'https://api.pappers.fr/v2';
+const MCP_SERVER = 'pappers';
 
-function getApiKey() {
-  return process.env.PAPPERS_API_KEY || null;
+/**
+ * Check if the Pappers MCP server is configured.
+ * Legacy compat: providers call this to check availability.
+ * Now backed by MCP config instead of PAPPERS_API_KEY env var.
+ */
+export function hasPappersKey() {
+  return isMcpConfigured(MCP_SERVER);
 }
 
-export function hasPappersKey() {
-  return !!getApiKey();
+// ── Circuit Breaker ─────────────────────────────────────────────────────────
+// Stops hammering the MCP server after repeated failures.
+const circuitBreaker = {
+  failures: 0,
+  lastFailure: 0,
+  open: false,
+  THRESHOLD: 3,
+  COOLDOWN: 60_000,
+
+  record() {
+    this.failures++;
+    this.lastFailure = Date.now();
+    if (this.failures >= this.THRESHOLD) {
+      this.open = true;
+      console.error(`[pappers] Circuit breaker OPEN after ${this.failures} failures. Cooldown ${this.COOLDOWN / 1000}s.`);
+    }
+  },
+
+  recordSuccess() {
+    if (this.failures > 0) {
+      this.failures = 0;
+      this.open = false;
+    }
+  },
+
+  canRequest() {
+    if (!this.open) return true;
+    if (Date.now() - this.lastFailure > this.COOLDOWN) {
+      this.open = false;
+      this.failures = Math.max(0, this.failures - 1);
+      return true;
+    }
+    return false;
+  },
+};
+
+/**
+ * Wrapped MCP tool call with circuit breaker.
+ */
+async function pappersCall(toolName, args, label) {
+  if (!circuitBreaker.canRequest()) {
+    return { data: null, error: 'Pappers circuit breaker open — MCP server temporarily unavailable', cbBlocked: true };
+  }
+
+  try {
+    const data = await callMcpTool(MCP_SERVER, toolName, args);
+    circuitBreaker.recordSuccess();
+    return { data, error: null };
+  } catch (err) {
+    circuitBreaker.record();
+    const msg = err.message || 'MCP call failed';
+    console.error(`[pappers] ${label || toolName} failed: ${msg}`);
+    return { data: null, error: msg };
+  }
+}
+
+// ── BODACC distress classification ──────────────────────────────────────────
+
+const BODACC_DISTRESS_PATTERNS = {
+  redressement_judiciaire: /redressement\s*judiciaire|plan\s*de\s*redressement/i,
+  liquidation_judiciaire: /liquidation\s*judiciaire/i,
+  sauvegarde: /proc[eé]dure\s*de\s*sauvegarde|sauvegarde\s*acc[eé]l[eé]r[eé]e/i,
+  plan_cession: /plan\s*de\s*cession|cession\s*(?:totale|partielle)/i,
+  cessation_paiements: /cessation\s*(?:de[s]?\s*)?paiement/i,
+  dissolution: /dissolution/i,
+  radiation: /radiation/i,
+  jugement_ouverture: /jugement\s*d.ouverture/i,
+  jugement_cloture: /jugement\s*de?\s*cl[oô]ture/i,
+  conversion: /conversion\s*(?:en|de)\s*(?:liquidation|redressement)/i,
+};
+
+const BODACC_TYPE_CATEGORIES = {
+  comptes: /d[eé]p[oô]t\s*(?:des?\s*)?comptes|comptes\s*annuels/i,
+  creation: /cr[eé]ation|immatriculation/i,
+  modification: /modification|transfert|changement/i,
+  vente: /vente|cession\s*de\s*fonds/i,
+  fusion: /fusion|apport\s*partiel|scission/i,
+  capital: /augmentation\s*(?:de\s*)?capital|r[eé]duction\s*(?:de\s*)?capital/i,
+};
+
+function classifyBodacc(pub) {
+  const text = [pub.type, pub.description, pub.administration, pub.acte?.descriptif]
+    .filter(Boolean).join(' ');
+
+  let distressType = null;
+  let severity = 'info';
+
+  for (const [type, pattern] of Object.entries(BODACC_DISTRESS_PATTERNS)) {
+    if (pattern.test(text)) {
+      distressType = type;
+      break;
+    }
+  }
+
+  if (distressType) {
+    const SEVERITY_MAP = {
+      liquidation_judiciaire: 'critical',
+      cessation_paiements: 'critical',
+      conversion: 'high',
+      redressement_judiciaire: 'high',
+      plan_cession: 'high',
+      sauvegarde: 'medium',
+      jugement_ouverture: 'medium',
+      dissolution: 'medium',
+      radiation: 'medium',
+      jugement_cloture: 'low',
+    };
+    severity = SEVERITY_MAP[distressType] || 'medium';
+  }
+
+  let category = 'other';
+  for (const [cat, pattern] of Object.entries(BODACC_TYPE_CATEGORIES)) {
+    if (pattern.test(text)) {
+      category = cat;
+      break;
+    }
+  }
+
+  return {
+    distressType,
+    category: distressType ? 'procedure' : category,
+    severity,
+    isDistress: !!distressType,
+  };
 }
 
 /**
- * Search companies by name on Pappers
+ * Search companies by name via MCP.
  */
 export async function pappersSearchByName(name, options = {}) {
-  const apiKey = getApiKey();
-  if (!apiKey) return { results: [], error: 'No PAPPERS_API_KEY set' };
+  if (!isMcpConfigured(MCP_SERVER)) return { results: [], error: 'Pappers MCP server not configured' };
 
-  try {
-    const resp = await axios.get(`${PAPPERS_API}/recherche`, {
-      params: {
-        api_token: apiKey,
-        q: name,
-        par_page: options.count || 5,
-      },
-      timeout: 10000,
-    });
-    return { results: resp.data.resultats || resp.data.entreprises || [], error: null };
-  } catch (err) {
-    return { results: [], error: err.message };
-  }
+  const { data, error } = await pappersCall('pappers_search', {
+    q: name,
+    per_page: options.count || 5,
+  }, `search(${name})`);
+
+  if (error) return { results: [], error };
+  return { results: data?.resultats || data?.entreprises || [], error: null };
 }
 
 /**
- * Get company details by SIREN
+ * Get company details by SIREN via MCP.
  */
 export async function pappersGetBySiren(siren) {
-  const apiKey = getApiKey();
-  if (!apiKey) return { data: null, error: 'No PAPPERS_API_KEY set' };
+  if (!isMcpConfigured(MCP_SERVER)) return { data: null, error: 'Pappers MCP server not configured' };
 
-  try {
-    const resp = await axios.get(`${PAPPERS_API}/entreprise`, {
-      params: { api_token: apiKey, siren },
-      timeout: 10000,
-    });
-    return { data: resp.data, error: null };
-  } catch (err) {
-    return { data: null, error: err.message };
-  }
+  const { data, error } = await pappersCall('pappers_get_entreprise', { siren }, `get(${siren})`);
+
+  if (error) return { data: null, error };
+  return { data, error: null };
 }
 
 /**
  * Main lookup: search by name, then fetch detail by SIREN.
- * Returns null if no API key or no result found.
  */
 export async function pappersLookup(companyName) {
-  if (!getApiKey()) return null;
+  if (!isMcpConfigured(MCP_SERVER)) return null;
 
   const search = await pappersSearchByName(companyName);
   if (search.error || search.results.length === 0) return null;
@@ -77,179 +202,200 @@ export async function pappersLookup(companyName) {
 
 /**
  * Get full M&A dossier for a company by SIREN.
- * Returns parsed financial history, UBO, BODACC, dirigeants with mandats,
- * and collective procedures.
  */
 export async function pappersGetFullDossier(siren) {
-  // Check cache first
   const cached = getCached(siren);
   if (cached) return { data: cached, error: null, fromCache: true };
 
-  const apiKey = getApiKey();
-  if (!apiKey) return { data: null, error: 'No PAPPERS_API_KEY set' };
+  if (!isMcpConfigured(MCP_SERVER)) return { data: null, error: 'Pappers MCP server not configured' };
 
-  try {
-    const resp = await axios.get(`${PAPPERS_API}/entreprise`, {
-      params: { api_token: apiKey, siren },
-      timeout: 15000,
-    });
+  const { data: d, error } = await pappersCall('pappers_get_entreprise', { siren }, `dossier(${siren})`);
 
-    const d = resp.data;
+  if (error || !d) return { data: null, error: error || 'Empty response' };
 
-    // Financial history — last 5 years
-    const financialHistory = (d.finances || []).slice(0, 5).map(f => ({
-      annee: f.annee,
-      ca: f.chiffre_affaires ?? null,
-      resultat: f.resultat ?? null,
-      capitauxPropres: f.capitaux_propres ?? null,
-      effectif: f.effectif ?? null,
-      ebitda: f.excedent_brut_exploitation ?? null,
-      margeEbitda: f.taux_marge_EBITDA ?? null,
-      dettesFinancieres: f.dettes_financieres ?? null,
-      tresorerie: f.tresorerie ?? null,
-      fondsPropres: f.fonds_propres ?? null,
-      bfr: f.BFR ?? null,
-      ratioEndettement: f.ratio_endettement ?? null,
-      autonomieFinanciere: f.autonomie_financiere ?? null,
-      rentabiliteFP: f.rentabilite_fonds_propres ?? null,
-      margeNette: f.marge_nette ?? null,
-      capaciteAutofinancement: f.capacite_autofinancement ?? null,
-    }));
+  // Financial history — last 5 years
+  const financialHistory = (d.finances || []).slice(0, 5).map(f => ({
+    annee: f.annee,
+    ca: f.chiffre_affaires ?? null,
+    resultat: f.resultat ?? null,
+    capitauxPropres: f.capitaux_propres ?? null,
+    effectif: f.effectif ?? null,
+    ebitda: f.excedent_brut_exploitation ?? null,
+    margeEbitda: f.taux_marge_EBITDA ?? null,
+    dettesFinancieres: f.dettes_financieres ?? null,
+    tresorerie: f.tresorerie ?? null,
+    fondsPropres: f.fonds_propres ?? null,
+    bfr: f.BFR ?? null,
+    ratioEndettement: f.ratio_endettement ?? null,
+    autonomieFinanciere: f.autonomie_financiere ?? null,
+    rentabiliteFP: f.rentabilite_fonds_propres ?? null,
+    margeNette: f.marge_nette ?? null,
+    capaciteAutofinancement: f.capacite_autofinancement ?? null,
+  }));
 
-    // UBO — bénéficiaires effectifs
-    const ubo = (d.beneficiaires_effectifs || []).map(b => ({
-      nom: b.nom,
-      prenom: b.prenom,
-      dateNaissance: b.date_de_naissance_formate || b.date_naissance || null,
-      nationalite: b.nationalite || null,
-      pourcentageParts: b.pourcentage_parts ?? null,
-      pourcentageVotes: b.pourcentage_votes ?? null,
-    }));
+  // UBO — bénéficiaires effectifs
+  const ubo = (d.beneficiaires_effectifs || []).map(b => ({
+    nom: b.nom,
+    prenom: b.prenom,
+    dateNaissance: b.date_de_naissance_formate || b.date_naissance || null,
+    nationalite: b.nationalite || null,
+    pourcentageParts: b.pourcentage_parts ?? null,
+    pourcentageVotes: b.pourcentage_votes ?? null,
+  }));
 
-    // BODACC publications — last 50 (captures M&A activity)
-    const bodacc = (d.publications_bodacc || []).slice(0, 50).map(p => {
-      // Build rich description from all available fields
-      const parts = [];
-      if (p.description && p.description !== p.type) parts.push(p.description);
-      if (p.administration) parts.push(p.administration);
-      if (p.capital) parts.push(`Capital: ${(p.capital / 1e3).toFixed(0)}K€`);
-      if (p.date_cloture) parts.push(`Clôture: ${p.date_cloture}`);
-      if (p.type_depot) parts.push(p.type_depot);
-      if (p.activite) parts.push(p.activite);
-      const actes = (p.acte?.actes_publies || []).map(a => a.type_acte).filter(Boolean);
-      if (actes.length) parts.push(actes.join(', '));
-      // Build BODACC URL: format id:{letter}{parution}{annonce}
-      const bodaccLetter = p.bodacc || (p.type?.toLowerCase().includes('comptes') ? 'C' : 'B');
-      const bodaccUrl = p.numero_parution && p.numero_annonce
-        ? `https://www.bodacc.fr/pages/annonces-commerciales-detail/?q.id=id:${bodaccLetter}${p.numero_parution}${p.numero_annonce}`
-        : null;
-      return {
-        date: p.date,
-        type: p.type,
-        tribunal: p.greffe || p.tribunal || null,
-        numero: p.numero_annonce || null,
-        description: parts.length ? parts.join('. ') : p.type || null,
-        details: p.acte?.descriptif || null,
-        url: bodaccUrl,
-        capital: p.capital || null,
-        rcs: p.rcs || null,
-      };
-    });
+  // BODACC publications — last 50 with M&A distress classification
+  const bodacc = (d.publications_bodacc || []).slice(0, 50).map(p => {
+    const parts = [];
+    if (p.description && p.description !== p.type) parts.push(p.description);
+    if (p.administration) parts.push(p.administration);
+    if (p.capital) parts.push(`Capital: ${(p.capital / 1e3).toFixed(0)}K€`);
+    if (p.date_cloture) parts.push(`Clôture: ${p.date_cloture}`);
+    if (p.type_depot) parts.push(p.type_depot);
+    if (p.activite) parts.push(p.activite);
+    const actes = (p.acte?.actes_publies || []).map(a => a.type_acte).filter(Boolean);
+    if (actes.length) parts.push(actes.join(', '));
 
-    // Dirigeants with their mandats in other companies
-    const dirigeants = (d.dirigeants || []).map(dir => ({
-      nom: dir.nom,
-      prenom: dir.prenom,
-      role: dir.fonction,
-      dateNomination: dir.date_prise_de_poste || null,
-      dateNaissance: dir.date_de_naissance_formate || null,
-      nationalite: dir.nationalite || null,
-      mandats: (dir.entreprises_dirigees || []).map(e => ({
-        siren: e.siren,
-        denomination: e.denomination || e.nom_entreprise || null,
-        role: e.fonction || null,
-        etat: e.etat || null,
-      })),
-    }));
+    const bodaccLetter = p.bodacc || (p.type?.toLowerCase().includes('comptes') ? 'C' : 'B');
+    const bodaccUrl = p.numero_parution && p.numero_annonce
+      ? `https://www.bodacc.fr/pages/annonces-commerciales-detail/?q.id=id:${bodaccLetter}${p.numero_parution}${p.numero_annonce}`
+      : null;
 
-    // Procédures collectives
-    const proceduresCollectives = (d.procedures_collectives || []).map(p => ({
+    const classification = classifyBodacc(p);
+
+    return {
+      date: p.date,
+      type: p.type,
+      tribunal: p.greffe || p.tribunal || null,
+      numero: p.numero_annonce || null,
+      description: parts.length ? parts.join('. ') : p.type || null,
+      details: p.acte?.descriptif || null,
+      url: bodaccUrl,
+      capital: p.capital || null,
+      rcs: p.rcs || null,
+      distressType: classification.distressType,
+      category: classification.category,
+      severity: classification.severity,
+      isDistress: classification.isDistress,
+      administration: p.administration || null,
+      actesTypes: actes.length ? actes : null,
+    };
+  });
+
+  // Dirigeants with their mandats in other companies
+  const dirigeants = (d.dirigeants || []).map(dir => ({
+    nom: dir.nom,
+    prenom: dir.prenom,
+    role: dir.fonction,
+    dateNomination: dir.date_prise_de_poste || null,
+    dateNaissance: dir.date_de_naissance_formate || null,
+    nationalite: dir.nationalite || null,
+    mandats: (dir.entreprises_dirigees || []).map(e => ({
+      siren: e.siren,
+      denomination: e.denomination || e.nom_entreprise || null,
+      role: e.fonction || null,
+      etat: e.etat || null,
+    })),
+  }));
+
+  // Procédures collectives
+  const proceduresCollectives = (d.procedures_collectives || []).map(p => {
+    const typeNorm = (p.type || '').toLowerCase();
+    let procedureCategory = 'other';
+    let severity = 'medium';
+
+    if (/liquidation/.test(typeNorm)) {
+      procedureCategory = 'liquidation';
+      severity = 'critical';
+    } else if (/redressement/.test(typeNorm)) {
+      procedureCategory = 'redressement';
+      severity = 'high';
+    } else if (/sauvegarde/.test(typeNorm)) {
+      procedureCategory = 'sauvegarde';
+      severity = 'medium';
+    } else if (/plan\s*de\s*cession/.test(typeNorm)) {
+      procedureCategory = 'cession';
+      severity = 'high';
+    }
+
+    return {
       date: p.date_effet || p.date || null,
       type: p.type || null,
       jugement: p.nature_jugement || null,
       tribunal: p.tribunal || null,
-    }));
-
-    // Company identity
-    const identity = {
-      siren: d.siren,
-      siret: d.siege?.siret || null,
-      name: d.nom_entreprise || d.denomination || null,
-      dateCreation: d.date_creation || null,
-      nafCode: d.code_naf || null,
-      nafLabel: d.libelle_code_naf || null,
-      formeJuridique: d.forme_juridique || null,
-      effectifs: d.tranche_effectif || d.effectif || null,
-      adresse: d.siege?.adresse_ligne_1 || d.siege?.adresse || null,
-      ville: d.siege?.ville || null,
-      codePostal: d.siege?.code_postal || null,
-      capital: d.capital ?? null,
-      capitalMonnaie: d.devise_capital || 'EUR',
-      website: d.site_internet || d.domaine_de_messagerie || null,
-      status: d.etat === 'actif' ? 'Actif' : (d.etat || 'Inconnu'),
-      dateRadiation: d.date_radiation || null,
+      procedureCategory,
+      severity,
+      dateDebut: p.date_debut || null,
+      dateFin: p.date_fin || null,
+      administrateur: p.administrateur || null,
+      mandataire: p.mandataire_judiciaire || null,
     };
+  });
 
-    // Consolidated financials (group level)
-    const consolidatedFinances = (d.finances_consolidees || []).slice(0, 5).map(f => ({
-      annee: f.annee,
-      ca: f.chiffre_affaires ?? null,
-      resultat: f.resultat ?? null,
-      capitauxPropres: f.capitaux_propres ?? null,
-      effectif: f.effectif ?? null,
-      ebitda: f.excedent_brut_exploitation ?? null,
-      margeEbitda: f.taux_marge_EBITDA ?? null,
-      dettesFinancieres: f.dettes_financieres ?? null,
-      tresorerie: f.tresorerie ?? null,
-      fondsPropres: f.fonds_propres ?? null,
-      bfr: f.BFR ?? null,
-      ratioEndettement: f.ratio_endettement ?? null,
-      autonomieFinanciere: f.autonomie_financiere ?? null,
-      rentabiliteFP: f.rentabilite_fonds_propres ?? null,
-      margeNette: f.marge_nette ?? null,
-      capaciteAutofinancement: f.capacite_autofinancement ?? null,
-    }));
+  // Company identity
+  const identity = {
+    siren: d.siren,
+    siret: d.siege?.siret || null,
+    name: d.nom_entreprise || d.denomination || null,
+    dateCreation: d.date_creation || null,
+    nafCode: d.code_naf || null,
+    nafLabel: d.libelle_code_naf || null,
+    formeJuridique: d.forme_juridique || null,
+    effectifs: d.tranche_effectif || d.effectif || null,
+    adresse: d.siege?.adresse_ligne_1 || d.siege?.adresse || null,
+    ville: d.siege?.ville || null,
+    codePostal: d.siege?.code_postal || null,
+    capital: d.capital ?? null,
+    capitalMonnaie: d.devise_capital || 'EUR',
+    website: d.site_internet || d.domaine_de_messagerie || null,
+    status: d.etat === 'actif' ? 'Actif' : (d.etat || 'Inconnu'),
+    dateRadiation: d.date_radiation || null,
+    objetSocial: d.objet_social || null,
+    tvaIntra: d.numero_tva_intracommunautaire || null,
+    rcs: d.numero_rcs || null,
+    greffe: d.greffe || null,
+    conventionCollective: d.conventions_collectives?.[0]?.nom || null,
+    effectifTexte: d.effectif || null,
+  };
 
-    // Representants (dirigeants + corporate entities with mandats)
-    const representants = (d.representants || []).map(r => ({
-      nom: r.nom_complet || r.denomination || [r.prenom, r.nom].filter(Boolean).join(' ') || '?',
-      qualite: r.qualite || '',
-      siren: r.siren || null,
-      personneMorale: !!r.personne_morale,
-    }));
+  // Consolidated financials (group level)
+  const consolidatedFinances = (d.finances_consolidees || []).slice(0, 5).map(f => ({
+    annee: f.annee,
+    ca: f.chiffre_affaires ?? null,
+    resultat: f.resultat ?? null,
+    capitauxPropres: f.capitaux_propres ?? null,
+    effectif: f.effectif ?? null,
+    ebitda: f.excedent_brut_exploitation ?? null,
+    margeEbitda: f.taux_marge_EBITDA ?? null,
+    dettesFinancieres: f.dettes_financieres ?? null,
+    tresorerie: f.tresorerie ?? null,
+    fondsPropres: f.fonds_propres ?? null,
+    bfr: f.BFR ?? null,
+    ratioEndettement: f.ratio_endettement ?? null,
+    autonomieFinanciere: f.autonomie_financiere ?? null,
+    rentabiliteFP: f.rentabilite_fonds_propres ?? null,
+    margeNette: f.marge_nette ?? null,
+    capaciteAutofinancement: f.capacite_autofinancement ?? null,
+  }));
 
-    // Etablissements
-    const etablissements = (d.etablissements || []).map(e => ({
-      siret: e.siret,
-      type: e.type_etablissement,
-      adresse: [e.adresse_ligne_1, e.code_postal, e.ville].filter(Boolean).join(' '),
-      actif: !e.etablissement_cesse,
-    }));
+  // Representants
+  const representants = (d.representants || []).map(r => ({
+    nom: r.nom_complet || r.denomination || [r.prenom, r.nom].filter(Boolean).join(' ') || '?',
+    qualite: r.qualite || '',
+    siren: r.siren || null,
+    personneMorale: !!r.personne_morale,
+  }));
 
-    // Extra fields
-    identity.objetSocial = d.objet_social || null;
-    identity.tvaIntra = d.numero_tva_intracommunautaire || null;
-    identity.rcs = d.numero_rcs || null;
-    identity.greffe = d.greffe || null;
-    identity.conventionCollective = d.conventions_collectives?.[0]?.nom || null;
-    identity.effectifTexte = d.effectif || null;
+  // Etablissements
+  const etablissements = (d.etablissements || []).map(e => ({
+    siret: e.siret,
+    type: e.type_etablissement,
+    adresse: [e.adresse_ligne_1, e.code_postal, e.ville].filter(Boolean).join(' '),
+    actif: !e.etablissement_cesse,
+  }));
 
-      const result = { identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives };
-      setCache(siren, result);
-      return { data: result, error: null };
-  } catch (err) {
-    return { data: null, error: err.message };
-  }
+  const result = { identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives };
+  setCache(siren, result);
+  return { data: result, error: null };
 }
 
 function formatPappersResult(r) {
@@ -300,16 +446,12 @@ function formatPappersDetail(d) {
 }
 
 /**
- * Search for subsidiaries/related entities.
- * Strategy 1: recherche-dirigeants — finds companies where the parent acts as corporate director.
- * Strategy 2: name-search fallback.
- * Returns array of entities with their latest financials, sorted by CA desc.
+ * Search for subsidiaries/related entities via MCP.
  */
 export async function pappersSearchSubsidiaries(parentName, parentSiren) {
-  const apiKey = getApiKey();
-  if (!apiKey) return { subsidiaries: [], error: 'No PAPPERS_API_KEY set' };
+  if (!isMcpConfigured(MCP_SERVER)) return { subsidiaries: [], error: 'Pappers MCP server not configured' };
 
-  // Check cache for subsidiary search results
+  // Check cache
   const subsCacheKey = `subs_${parentSiren}`;
   const cachedSubs = getCached(subsCacheKey);
   if (cachedSubs?.subsidiaries) {
@@ -319,71 +461,64 @@ export async function pappersSearchSubsidiaries(parentName, parentSiren) {
   const searchName = parentName.replace(/\s*(GRP|SAS|SARL|SA|SCI|EURL|GROUP|GROUPE|HOLDING|SNC|SASU)\s*/gi, ' ').trim();
   const nameNorm = searchName.toLowerCase();
 
-  // ── Strategy 1: recherche-dirigeants ──────────────────────────────────────
-  // Finds companies where an entity named like the parent is listed as dirigeant
+  // ── Strategy 1: recherche-dirigeants via MCP ──
   try {
-    const resp = await axios.get(`${PAPPERS_API}/recherche-dirigeants`, {
-      params: { api_token: apiKey, q: searchName, par_page: 20 },
-      timeout: 15000,
-    });
+    const { data, error } = await pappersCall('pappers_recherche_dirigeants', {
+      q: searchName,
+      per_page: 20,
+    }, `recherche-dirigeants(${searchName})`);
 
-    const resultats = resp.data.resultats || [];
-    const subsidiaryMap = new Map();
+    if (error) {
+      console.error(`[pappers] recherche-dirigeants failed: ${error} — falling back to name-search`);
+    } else {
+      const resultats = data?.resultats || [];
+      const subsidiaryMap = new Map();
 
-    for (const r of resultats) {
-      // Only match the PARENT entity as dirigeant (by SIREN if available, else exact name)
-      const dirigeantSiren = r.siren || '';
-      const dirigeantName = (r.nom_entreprise || r.denomination || r.nom_complet || '').toLowerCase().trim();
-      
-      // Strict filter: must be the parent SIREN, or exact parent name match
-      const isParent = (dirigeantSiren === parentSiren) || (dirigeantName === nameNorm) || (dirigeantName === searchName.toLowerCase());
-      if (!isParent) continue;
+      for (const r of resultats) {
+        const dirigeantSiren = r.siren || '';
+        const dirigeantName = (r.nom_entreprise || r.denomination || r.nom_complet || '').toLowerCase().trim();
+        const isParent = (dirigeantSiren === parentSiren) || (dirigeantName === nameNorm) || (dirigeantName === searchName.toLowerCase());
+        if (!isParent) continue;
 
-      for (const e of (r.entreprises || [])) {
-        if (e.siren && e.siren !== parentSiren && !subsidiaryMap.has(e.siren)) {
-          subsidiaryMap.set(e.siren, e);
+        for (const e of (r.entreprises || [])) {
+          if (e.siren && e.siren !== parentSiren && !subsidiaryMap.has(e.siren)) {
+            subsidiaryMap.set(e.siren, e);
+          }
         }
       }
+
+      if (subsidiaryMap.size > 0) {
+        const entities = Array.from(subsidiaryMap.values()).slice(0, 30);
+        const subsidiaries = await fetchSubsidiaryDetails(entities);
+        setCache(subsCacheKey, { subsidiaries, total: subsidiaryMap.size });
+        return { subsidiaries, total: subsidiaryMap.size, error: null };
+      }
     }
-
-    if (subsidiaryMap.size > 0) {
-      // Limit to 30 subsidiaries to save API credits
-      const entities = Array.from(subsidiaryMap.values()).slice(0, 30);
-      const subsidiaries = await fetchSubsidiaryDetails(apiKey, entities);
-      // Cache subsidiary search results
-      setCache(subsCacheKey, { subsidiaries, total: subsidiaryMap.size });
-      return { subsidiaries, total: subsidiaryMap.size, error: null };
-    }
-  } catch (_) {
-    // Fall through to name-search
-  }
-
-  // ── Strategy 2: name-search fallback ──────────────────────────────────────
-  try {
-    const resp = await axios.get(`${PAPPERS_API}/recherche`, {
-      params: { api_token: apiKey, q: searchName, par_page: 20 },
-      timeout: 15000,
-    });
-
-    const entities = (resp.data.entreprises || resp.data.resultats || [])
-      .filter(e => e.siren !== parentSiren);
-
-    const subsidiaries = await fetchSubsidiaryDetails(apiKey, entities);
-    // Cache fallback search results too
-    setCache(subsCacheKey, { subsidiaries, total: subsidiaries.length });
-    return { subsidiaries, error: null };
   } catch (err) {
-    return { subsidiaries: [], error: err.message };
+    console.error(`[pappers] recherche-dirigeants unexpected error: ${err.message} — falling back to name-search`);
   }
+
+  // ── Strategy 2: name-search fallback via MCP ──
+  const { data, error } = await pappersCall('pappers_search', {
+    q: searchName,
+    per_page: 20,
+  }, `search-subs(${searchName})`);
+
+  if (error) return { subsidiaries: [], error };
+
+  const entities = (data?.entreprises || data?.resultats || [])
+    .filter(e => e.siren !== parentSiren);
+
+  const subsidiaries = await fetchSubsidiaryDetails(entities);
+  setCache(subsCacheKey, { subsidiaries, total: subsidiaries.length });
+  return { subsidiaries, error: null };
 }
 
 /**
- * P2 FIX: Batch cache reads upfront, then parallel API calls for uncached entities.
- * Previously: N entities × (1 cache read + 1 API call + 1 cache write) = 3N sequential I/O ops.
- * Now: 1 batch cache read + parallel API calls (concurrency 5) + 1 batch cache write.
+ * Batch fetch subsidiary details via MCP — parallel with concurrency limit.
  */
-async function fetchSubsidiaryDetails(apiKey, entities) {
-  // Step 1: Batch read all cache entries upfront (eliminates N individual cache reads)
+async function fetchSubsidiaryDetails(entities) {
+  // Step 1: Batch read all cache entries upfront
   const cacheEntries = new Map();
   for (const e of entities) {
     cacheEntries.set(e.siren, getCached(e.siren));
@@ -401,32 +536,38 @@ async function fetchSubsidiaryDetails(apiKey, entities) {
     }
   }
 
-  // Step 3: Parallel API calls for uncached entities (concurrency limit of 5)
+  // Step 3: Parallel MCP calls for uncached entities (concurrency limit of 5)
   const CONCURRENCY = 5;
   const fetched = [];
   for (let i = 0; i < uncached.length; i += CONCURRENCY) {
+    if (!circuitBreaker.canRequest()) {
+      console.error('[pappers] Circuit breaker open — skipping remaining subsidiary fetches');
+      for (let j = i; j < uncached.length; j++) {
+        fetched.push({ entity: uncached[j], apiData: null });
+      }
+      break;
+    }
+
     const batch = uncached.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(async (e) => {
-        const det = await axios.get(`${PAPPERS_API}/entreprise`, {
-          params: { api_token: apiKey, siren: e.siren },
-          timeout: 10000,
-        });
-        return { entity: e, apiData: det.data };
+        const data = await callMcpTool(MCP_SERVER, 'pappers_get_entreprise', { siren: e.siren });
+        circuitBreaker.recordSuccess();
+        return { entity: e, apiData: data };
       })
     );
     for (const result of results) {
       if (result.status === 'fulfilled') {
         fetched.push(result.value);
       } else {
-        // Find corresponding entity from batch
+        circuitBreaker.record();
         const idx = results.indexOf(result);
         fetched.push({ entity: batch[idx], apiData: null });
       }
     }
   }
 
-  // Step 4: Batch cache write for all newly fetched entities
+  // Step 4: Batch cache write
   for (const { entity, apiData } of fetched) {
     if (!apiData) continue;
     setCache(entity.siren, {
@@ -436,7 +577,7 @@ async function fetchSubsidiaryDetails(apiKey, entities) {
     });
   }
 
-  // Step 5: Build subsidiary list from cached + fetched
+  // Step 5: Build subsidiary list
   const subsidiaries = [];
   for (const { entity, data } of cached) {
     subsidiaries.push(buildSubsidiaryEntry(entity, data));
@@ -488,27 +629,45 @@ function buildSubsidiaryEntry(entity, d) {
   };
 }
 
-// ── Local cache to save API credits ──────────────────────────────────────────
+// ── In-memory cache + disk persistence ──────────────────────────────────────
 const CACHE_DIR = join(homedir(), '.intelwatch', 'cache', 'pappers');
 const CACHE_TTL = 7 * 24 * 3600 * 1000; // 7 days
+const memoryCache = new Map();
 
 function ensureCacheDir() {
   if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
 }
 
 export function getCached(siren) {
+  const mem = memoryCache.get(siren);
+  if (mem) {
+    if (Date.now() - mem._cachedAt > CACHE_TTL) {
+      memoryCache.delete(siren);
+      return null;
+    }
+    return mem;
+  }
+
   try {
     const file = join(CACHE_DIR, `${siren}.json`);
     if (!existsSync(file)) return null;
     const data = JSON.parse(readFileSync(file, 'utf8'));
     if (Date.now() - data._cachedAt > CACHE_TTL) return null;
+    memoryCache.set(siren, data);
     return data;
-  } catch { return null; }
+  } catch (err) {
+    console.error(`[pappers] Cache read error for ${siren}: ${err.message}`);
+    return null;
+  }
 }
 
 export function setCache(siren, data) {
+  const entry = { ...data, _cachedAt: Date.now() };
+  memoryCache.set(siren, entry);
   try {
     ensureCacheDir();
-    writeFileSync(join(CACHE_DIR, `${siren}.json`), JSON.stringify({ ...data, _cachedAt: Date.now() }));
-  } catch { /* silent */ }
+    writeFileSync(join(CACHE_DIR, `${siren}.json`), JSON.stringify(entry));
+  } catch (err) {
+    console.error(`[pappers] Cache write error for ${siren}: ${err.message}`);
+  }
 }

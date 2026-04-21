@@ -305,7 +305,7 @@ export async function runCompareCompanies(siren1, siren2) {
   // ── Footer ────────────────────────────────────────────────────────────────
   console.log('');
   const providerNote = p1 === 'annuaire-entreprises' || p2 === 'annuaire-entreprises'
-    ? chalk.gray('  Données issues de l\'Annuaire Entreprises (data.gouv.fr) — gratuites mais limitées.\n  Configurez PAPPERS_API_KEY pour des données complètes (UBO, BODACC, mandats).')
+    ? chalk.gray('  Données issues de l\'Annuaire Entreprises (data.gouv.fr) — gratuites mais limitées.\n  Configurez le serveur MCP Pappers pour des données complètes (UBO, BODACC, mandats).')
     : '';
   if (providerNote) console.log(providerNote);
   console.log('');

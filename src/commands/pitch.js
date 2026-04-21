@@ -5,9 +5,10 @@ import { header, error, warn } from '../utils/display.js';
 import { callAI, hasAIKey, getAIConfig } from '../ai/client.js';
 
 export async function runPitch(competitorId, options = {}) {
-  if (!hasAIKey()) {
-    error('No AI API key configured.');
-    console.log(chalk.gray('Set OPENAI_API_KEY or ANTHROPIC_API_KEY env var, or add to ~/.intelwatch/config.yml'));
+  const aiConfig = getAIConfig();
+  if (!aiConfig) {
+    error('No AI provider configured.');
+    console.log(chalk.gray('Vulcain Ollama should be the default. Check connectivity to 192.168.1.30:11434'));
     process.exit(1);
   }
 
@@ -32,7 +33,6 @@ export async function runPitch(competitorId, options = {}) {
   const yourSite = options.for || 'your product';
   const format = options.format || 'md';
 
-  const aiConfig = getAIConfig();
   header(`📝 Competitive Pitch: ${yourSite} vs ${competitorName}`);
   console.log(chalk.gray(`Provider: ${aiConfig.provider} / ${aiConfig.model}\n`));
 

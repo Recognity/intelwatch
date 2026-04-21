@@ -1,17 +1,17 @@
 import axios from 'axios';
 
-// ── Debug stub (remplacer par logger réel en prod) ──────────────────────────
+// ── Debug ─────────────────────────────────────────────────────────────────────
 const debug = (...args) => {
   if (process.env.DEBUG_FETCHER) console.log('[fetcher]', ...args);
 };
 
 // ── User-Agent rotation ────────────────────────────────────────────────────
 const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0',
 ];
 
 function randomUserAgent() {
@@ -24,7 +24,10 @@ export function sleep(ms) {
 }
 
 // ── Domaines protégés (Cloudflare / anti-bot lourd) ────────────────────────
-const PROTECTED_DOMAINS = ['pappers.fr', 'societe.com', 'verif.com', 'score3.fr', 'manageo.fr'];
+const PROTECTED_DOMAINS = [
+  'pappers.fr', 'societe.com', 'verif.com', 'score3.fr', 'manageo.fr',
+  'infogreffe.fr', 'ellisphere.com', 'creditsafe.com',
+];
 
 export function isProtectedDomain(url) {
   try {
@@ -35,27 +38,83 @@ export function isProtectedDomain(url) {
   }
 }
 
-// ── Camofox (anti-bot bypass local) ────────────────────────────────────────
-const CAMOFOX_BASE = 'http://localhost:9377';
-const CAMOFOX_USER_ID = 'intelwatch';
-const CAMOFOX_SESSION_KEY = 'default';
-const CAMOFOX_WAIT_MS = 7000;
+// ── Camofox configuration (env-driven) ────────────────────────────────────
+const CAMOFOX_BASE = process.env.CAMOFOX_BASE || 'http://localhost:9377';
+const CAMOFOX_USER_ID = process.env.CAMOFOX_USER_ID || 'intelwatch';
+const CAMOFOX_SESSION_KEY = process.env.CAMOFOX_SESSION_KEY || 'default';
+const CAMOFOX_WAIT_MS = parseInt(process.env.CAMOFOX_WAIT_MS || '7000', 10);
+const CAMOFOX_MAX_TABS = parseInt(process.env.CAMOFOX_MAX_TABS || '3', 10);
+
+// ── Tab semaphore ─────────────────────────────────────────────────────────
+// Limits concurrent Camofox tabs to prevent resource exhaustion.
+let activeTabs = 0;
+const tabQueue = [];
+
+function acquireTab() {
+  if (activeTabs < CAMOFOX_MAX_TABS) {
+    activeTabs++;
+    return Promise.resolve();
+  }
+  return new Promise(resolve => tabQueue.push(resolve));
+}
+
+function releaseTab() {
+  activeTabs--;
+  if (tabQueue.length > 0) {
+    activeTabs++;
+    tabQueue.shift()();
+  }
+}
+
+// ── Adaptive wait ─────────────────────────────────────────────────────────
+// Lighter sites resolve faster; heavy CF challenges need more time.
+const DOMAIN_WAIT_OVERRIDES = {
+  'societe.com': 10000,
+  'verif.com': 10000,
+  'pappers.fr': 8000,
+  'infogreffe.fr': 10000,
+};
+
+function getWaitMs(url) {
+  try {
+    const { hostname } = new URL(url);
+    for (const [domain, ms] of Object.entries(DOMAIN_WAIT_OVERRIDES)) {
+      if (hostname === domain || hostname.endsWith(`.${domain}`)) return ms;
+    }
+  } catch { /* use default */ }
+  return CAMOFOX_WAIT_MS;
+}
+
+// ── Health check cache ────────────────────────────────────────────────────
+// Avoids per-request health checks — cache for 30s.
+let healthCheckResult = { ok: false, ts: 0 };
+const HEALTH_CHECK_TTL = 30_000;
+
+async function isCamofoxAvailable() {
+  if (healthCheckResult.ok && Date.now() - healthCheckResult.ts < HEALTH_CHECK_TTL) {
+    return true;
+  }
+  try {
+    await axios.get(`${CAMOFOX_BASE}/health`, { timeout: 3000 });
+    healthCheckResult = { ok: true, ts: Date.now() };
+    return true;
+  } catch {
+    healthCheckResult = { ok: false, ts: Date.now() };
+    debug('camofox indisponible sur', CAMOFOX_BASE);
+    return false;
+  }
+}
 
 export async function camofoxFetch(url, options = {}) {
   const { timeout = 30000 } = options;
 
-  // Vérifier disponibilité Camofox
-  let healthCheck;
-  try {
-    healthCheck = await axios.get(`${CAMOFOX_BASE}/health`, { timeout: 2000 });
-  } catch {
-    debug('camofox indisponible sur', CAMOFOX_BASE);
+  if (!(await isCamofoxAvailable())) {
     throw new Error(`Camofox unavailable at ${CAMOFOX_BASE} — cannot bypass protection for ${url}`);
   }
 
+  await acquireTab();
   let tabId;
   try {
-    // POST /tabs — ouvrir onglet navigateur
     const createRes = await axios.post(`${CAMOFOX_BASE}/tabs`, {
       userId: CAMOFOX_USER_ID,
       sessionKey: CAMOFOX_SESSION_KEY,
@@ -65,18 +124,25 @@ export async function camofoxFetch(url, options = {}) {
     tabId = createRes.data?.tabId || createRes.data?.id;
     if (!tabId) throw new Error('Camofox: no tabId returned from POST /tabs');
 
-    debug('camofox tab created:', tabId, '— waiting', CAMOFOX_WAIT_MS, 'ms');
+    const waitMs = getWaitMs(url);
+    debug('camofox tab created:', tabId, '— waiting', waitMs, 'ms for', url);
 
-    // Attente résolution challenge CF
-    await sleep(CAMOFOX_WAIT_MS);
+    await sleep(waitMs);
 
-    // GET /tabs/{tabId}/snapshot — récupérer HTML rendu
     const snapRes = await axios.get(`${CAMOFOX_BASE}/tabs/${tabId}/snapshot`, {
       params: { userId: CAMOFOX_USER_ID },
       timeout,
     });
 
-    // Wrapper dans un format compatible response Axios
+    // Validate snapshot response
+    if (snapRes.status >= 400) {
+      throw new Error(`Camofox snapshot returned ${snapRes.status} for ${url}`);
+    }
+    const html = typeof snapRes.data === 'string' ? snapRes.data : '';
+    if (html.length < 100) {
+      console.error(`[camofox] Suspiciously short snapshot (${html.length} chars) for ${url}`);
+    }
+
     return {
       status: snapRes.status,
       statusText: snapRes.statusText,
@@ -87,7 +153,6 @@ export async function camofoxFetch(url, options = {}) {
       _camofox: true,
     };
   } finally {
-    // Toujours cleanup, même en cas d'erreur
     if (tabId) {
       try {
         await axios.delete(`${CAMOFOX_BASE}/tabs/${tabId}`, {
@@ -96,9 +161,10 @@ export async function camofoxFetch(url, options = {}) {
         });
         debug('camofox tab cleaned up:', tabId);
       } catch (err) {
-        debug('camofox cleanup failed for tab', tabId, err.message);
+        console.error(`[camofox] Tab cleanup failed for ${tabId}: ${err.message}`);
       }
     }
+    releaseTab();
   }
 }
 
@@ -112,12 +178,10 @@ export async function fetch(url, options = {}) {
     forceCamofox = false,
   } = options;
 
-  // Mode force : court-circuiter Axios, aller direct Camofox
   if (forceCamofox) {
     return camofoxFetch(url, options);
   }
 
-  // Domaine protégé connu : tentative Axios puis fallback si 403
   const protected_ = isProtectedDomain(url);
 
   const config = {
@@ -150,6 +214,7 @@ export async function fetch(url, options = {}) {
 
       if (response.status === 429) {
         const retryAfter = parseInt(response.headers['retry-after'] || '60', 10);
+        debug(`429 rate limited for ${url}, retry-after=${retryAfter}s`);
         if (attempt < retries) {
           await sleep(retryAfter * 1000);
           continue;
@@ -157,7 +222,6 @@ export async function fetch(url, options = {}) {
         throw new Error(`Rate limited (429) after ${retries} attempts`);
       }
 
-      // 403 = signature Cloudflare → fallback Camofox
       if (response.status === 403) {
         debug('403 détecté pour', url, '— fallback camofox');
         needsCamofox = true;
@@ -176,18 +240,16 @@ export async function fetch(url, options = {}) {
   // Fallback Camofox si 403 ou domaine protégé (et Axios a échoué)
   if (needsCamofox || (protected_ && lastError)) {
     try {
+      debug(`Camofox fallback for ${url} (needsCamofox=${needsCamofox}, protected=${protected_})`);
       return await camofoxFetch(url, options);
     } catch (camofoxErr) {
-      // Camofox indisponible → propager l'erreur Axios originale
-      debug('camofox fallback échoué:', camofoxErr.message);
+      console.error(`[fetcher] Camofox fallback failed for ${url}: ${camofoxErr.message}`);
       if (lastError) throw lastError;
       throw camofoxErr;
     }
   }
 
   if (lastError) throw lastError;
-
-  // Ne devrait jamais arriver, mais sécurité
   throw new Error(`fetch failed for ${url}`);
 }
 

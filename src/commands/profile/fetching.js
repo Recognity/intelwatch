@@ -4,6 +4,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { annuaireGetFullDossier } from '../../scrapers/annuaire-entreprises.js';
 import { setCache } from '../../scrapers/pappers.js';
+import { callMcpTool } from '../../mcp/client.js';
+import { isMcpConfigured } from '../../mcp/config.js';
 import { error, warn } from '../../utils/display.js';
 import { formatEuro } from './helpers.js';
 
@@ -77,7 +79,7 @@ export async function fetchPressData(identity, siren, brandName) {
         cacheHit = true;
         console.log(chalk.gray(`  Deep scan: loaded ${companyArticles.length} articles from cache`));
       }
-    } catch (_) { /* corrupt cache, re-scrape */ }
+    } catch (err) { console.error(`[press] Corrupt cache for ${siren}: ${err.message}`); }
   }
 
   if (!cacheHit) {
@@ -111,7 +113,7 @@ export async function fetchPressData(identity, siren, brandName) {
     try {
       if (!existsSync(pressCache)) mkdirSync(pressCache, { recursive: true });
       writeFileSync(pressCacheFile, JSON.stringify({ ts: Date.now(), articles: companyArticles }), 'utf8');
-    } catch (_) {}
+    } catch (err) { console.error(`[press] Cache write error: ${err.message}`); }
   }
 
   // Wait for M&A search to complete and merge results
@@ -245,7 +247,7 @@ async function fetchMaSearchResults(brandName, existingPressResults) {
       const sent = analyzeSentiment(r.title + ' ' + r.snippet);
       results.push({ source: 'ma-search', url: r.url, domain: r.domain, title: r.title, snippet: r.snippet?.substring(0, 300), sentiment: sent.label, category: 'ma' });
     }
-  } catch (_) { /* silent */ }
+  } catch (err) { console.error(`[press] M&A search failed: ${err.message}`); }
   return results;
 }
 
@@ -269,7 +271,7 @@ async function fetchSiteSearchArticles(companyDomain, brandName) {
       art.title = art.title || titleMap.get(art.url) || art.url;
       articles.push(art);
     }
-  } catch (_) {}
+  } catch (err) { console.error(`[press] Site search failed: ${err.message}`); }
   return articles;
 }
 
@@ -285,7 +287,7 @@ async function fetchLinkedInMentions(brandName) {
     for (const r of (linkedinSearch.results || [])) {
       articles.push({ url: r.url, title: r.title, content: r.snippet || '', source: 'linkedin' });
     }
-  } catch (_) {}
+  } catch (err) { console.error(`[press] LinkedIn search failed: ${err.message}`); }
   return articles;
 }
 
@@ -315,8 +317,7 @@ export async function scrapeDeepMaContent(pressResults) {
 }
 
 /**
- * P1 FIX: Refresh stale subsidiary financials in parallel.
- * Previously each subsidiary was refreshed sequentially with await in a for loop.
+ * Refresh stale subsidiary financials in parallel via MCP.
  */
 export async function refreshStaleSubsidiaries(subsidiariesData, consolidatedFinances) {
   const currentYear = new Date().getFullYear();
@@ -327,16 +328,13 @@ export async function refreshStaleSubsidiaries(subsidiariesData, consolidatedFin
   });
 
   if (staleSubs.length === 0) return;
+  if (!isMcpConfigured('pappers')) return;
 
-  const apiKey = process.env.PAPPERS_API_KEY;
-  if (!apiKey) return;
+  console.log(chalk.gray(`  🔄 ${staleSubs.length} subsidiaries with stale financials (< ${staleThreshold}), refreshing via MCP...`));
 
-  console.log(chalk.gray(`  🔄 ${staleSubs.length} subsidiaries with stale financials (< ${staleThreshold}), refreshing from Pappers...`));
-
-  // P1 FIX: Refresh up to 5 stale subsidiaries in parallel
   const toRefresh = staleSubs.slice(0, 5).filter(s => s.siren);
   const results = await Promise.allSettled(
-    toRefresh.map(stale => refreshOneSubsidiary(stale, apiKey))
+    toRefresh.map(stale => refreshOneSubsidiary(stale))
   );
 
   for (let i = 0; i < results.length; i++) {
@@ -358,23 +356,17 @@ export async function refreshStaleSubsidiaries(subsidiariesData, consolidatedFin
       } else {
         console.log(chalk.gray(`    — ${stale.name}: no newer data (latest: ${latestFin?.annee || 'none'})`));
       }
-    } else if (result.status === 'fulfilled' && result.value === 'credits_exhausted') {
-      console.log(chalk.yellow(`    ⚠ Pappers credits exhausted, skipping refresh`));
-      break;
     }
   }
 }
 
-async function refreshOneSubsidiary(stale, apiKey) {
-  const resp = await fetch(`https://api.pappers.fr/v1/entreprise?api_token=${apiKey}&siren=${stale.siren}`, {
-    headers: { 'User-Agent': 'intelwatch/1.1' },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!resp.ok) {
-    if (resp.status === 402) return 'credits_exhausted';
+async function refreshOneSubsidiary(stale) {
+  try {
+    const d = await callMcpTool('pappers', 'pappers_get_entreprise', { siren: stale.siren });
+    if (!d) return null;
+    return { latestFin: (d.finances || [])[0], apiData: d };
+  } catch (err) {
+    console.error(`[pappers] refreshOneSubsidiary failed for ${stale.siren}: ${err.message}`);
     return null;
   }
-  const d = await resp.json();
-  const latestFin = (d.finances || [])[0];
-  return { latestFin, apiData: d };
 }

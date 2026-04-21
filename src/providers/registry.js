@@ -377,7 +377,7 @@ export async function searchCompany(query, domainOrUrl, options = {}) {
         results: [],
         provider: 'pappers',
         country,
-        error: `Pappers API key not configured.`,
+        error: `Pappers MCP server not configured.`,
       };
     }
 
@@ -457,7 +457,7 @@ export async function getCompanyProfile(identifier, domainOrUrl, options = {}) {
         country,
         tier,
         isPreview,
-        error: `Pappers API key not configured.`,
+        error: `Pappers MCP server not configured.`,
       };
     }
 

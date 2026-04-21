@@ -1,8 +1,14 @@
 import { loadConfig } from '../config.js';
 
+// Local Ollama fallback — zero-cost inference when no cloud key is set.
+// Standard Ollama convention: http://localhost:11434.
+// Override via OLLAMA_HOST / OLLAMA_MODEL env vars or ~/.intelwatch/config.yml.
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+const OLLAMA_DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
+
 /**
- * Resolve AI provider config: env vars take priority, then config file.
- * Returns null if no key is configured.
+ * Resolve AI provider config: env vars take priority, then config file, then local Ollama.
+ * Returns null ONLY if explicitly no provider.
  */
 export function getAIConfig() {
   const envGoogle = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
@@ -33,10 +39,11 @@ export function getAIConfig() {
       };
     }
   } catch {
-    // config load failure — no AI
+    // config load failure — fall through to local Ollama
   }
 
-  return null;
+  // Default: local Ollama (zero cost, requires `ollama serve` running)
+  return { provider: 'ollama', host: OLLAMA_HOST, model: OLLAMA_DEFAULT_MODEL };
 }
 
 export function hasAIKey() {
@@ -49,31 +56,32 @@ export function hasAIKey() {
  */
 export async function callAI(systemPrompt, userPrompt, options = {}) {
   const maxTokens = options.maxTokens || 1000;
-
-  if (options.uncensored) {
-    const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    // We default to llama3 for uncensored local OSINT if the user hasn't specified one
-    const model = process.env.OLLAMA_MODEL || 'llama3';
-    return callOllama(host, model, systemPrompt, userPrompt, maxTokens);
-  }
-
   const aiConfig = getAIConfig();
+
   if (!aiConfig) {
     throw new Error(
-      'No AI API key configured. Set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
-      'or add ai.api_key to ~/.intelwatch/config.yml. Use --uncensored for local Ollama.'
+      'No AI provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
+      'or add ai.api_key to ~/.intelwatch/config.yml. Local Ollama is the default fallback.'
     );
   }
 
-  const { provider, apiKey, model } = aiConfig;
+  // Force Ollama when --uncensored flag is used
+  if (options.uncensored) {
+    return callOllama(OLLAMA_HOST, OLLAMA_DEFAULT_MODEL, systemPrompt, userPrompt, maxTokens);
+  }
 
+  const { provider } = aiConfig;
+
+  if (provider === 'ollama') {
+    return callOllama(aiConfig.host, aiConfig.model, systemPrompt, userPrompt, maxTokens);
+  }
   if (provider === 'google') {
-    return callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens);
+    return callGoogle(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
   }
   if (provider === 'anthropic') {
-    return callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens);
+    return callAnthropic(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
   }
-  return callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens);
+  return callOpenAI(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
 }
 
 async function callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens) {
@@ -130,9 +138,13 @@ async function callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens)
 /**
  * Rough cost estimate for display (assumes 4 chars ≈ 1 token).
  */
-export function estimateCost(inputChars, outputChars, provider = 'openai') {
+export function estimateCost(inputChars, outputChars, provider = 'ollama') {
   const inputTokens = Math.ceil(inputChars / 4);
   const outputTokens = Math.ceil(outputChars / 4);
+
+  if (provider === 'ollama') {
+    return { inputTokens, outputTokens, cost: '0.00000 (local)' };
+  }
 
   // gpt-4o-mini: $0.15/1M in, $0.60/1M out
   // claude-haiku: $0.25/1M in, $1.25/1M out
@@ -206,4 +218,22 @@ async function callOllama(host, model, systemPrompt, userPrompt, maxTokens) {
     throw new Error('Invalid Ollama API response');
   }
   return data.message.content.trim();
+}
+
+/**
+ * Check Ollama health and return available models.
+ */
+export async function checkOllamaHealth(host = OLLAMA_HOST) {
+  try {
+    const res = await fetch(`${host.replace(/\/$/, '')}/api/tags`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { healthy: false, models: [], error: `HTTP ${res.status}` };
+    const data = await res.json();
+    const models = (data.models || []).map(m => m.name);
+    return { healthy: true, models, defaultModel: OLLAMA_DEFAULT_MODEL };
+  } catch (err) {
+    return { healthy: false, models: [], error: err.message };
+  }
 }

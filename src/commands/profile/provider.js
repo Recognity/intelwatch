@@ -1,16 +1,21 @@
 import chalk from 'chalk';
 import { pappersSearchByName, pappersSearchSubsidiaries } from '../../scrapers/pappers.js';
-import { annuaireGetFullDossier, annuaireSearchByName } from '../../scrapers/annuaire-entreprises.js';
+import { annuaireSearchByName } from '../../scrapers/annuaire-entreprises.js';
+import { annuaireGetFullDossier } from '../../scrapers/annuaire-entreprises.js';
 import { pappersGetFullDossier, hasPappersKey } from '../../scrapers/pappers.js';
+import { hasAnnuaireConfig } from '../../scrapers/annuaire-entreprises.js';
 import { isPro, printProUpgrade } from '../../license.js';
 
 /**
  * Resolve the FR company data provider.
- * Pappers (Pro) with fallback to Annuaire Entreprises (free).
+ * Pappers MCP (Pro) → Annuaire MCP (free fallback) → none.
  */
 export function resolveFRProvider() {
   if (isPro() && hasPappersKey()) {
     return { providerName: 'pappers', searchByName: pappersSearchByName, getFullDossier: pappersGetFullDossier, searchSubsidiaries: pappersSearchSubsidiaries };
+  }
+  if (hasAnnuaireConfig()) {
+    return { providerName: 'annuaire-entreprises', searchByName: annuaireSearchByName, getFullDossier: annuaireGetFullDossier, searchSubsidiaries: null };
   }
   return { providerName: 'annuaire-entreprises', searchByName: annuaireSearchByName, getFullDossier: annuaireGetFullDossier, searchSubsidiaries: null };
 }

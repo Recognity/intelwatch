@@ -43,11 +43,13 @@ ${ctx.consFinSummary}
 === FILIALES / ENTITÉS LIÉES ===
 ${ctx.subsStr}
 
-=== PUBLICATIONS BODACC ===
+=== PUBLICATIONS BODACC (classified — distress signals flagged) ===
 ${ctx.bodaccStr}
 
-=== PROCÉDURES COLLECTIVES ===
+=== PROCÉDURES COLLECTIVES (with severity & personnel) ===
 ${ctx.procStr}
+NOTE: Procedures are classified by severity (critical/high/medium/low) and type (liquidation/redressement/sauvegarde/cession).
+If distress signals exist, assess their impact on M&A attractiveness: is the company a distressed acquisition target? A recovery play? Consider timeline progression (sauvegarde → redressement → liquidation).
 
 === PRESSE (${ctx.pressResults?.length || 0} mentions) ===
 ${ctx.pressStr}

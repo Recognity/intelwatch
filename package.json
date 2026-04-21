@@ -20,7 +20,8 @@
     "commander": "^12.1.0",
     "inquirer": "^10.2.2",
     "xlsx": "^0.18.5",
-    "yaml": "^2.6.1"
+    "yaml": "^2.6.1",
+    "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "engines": {
     "node": ">=18"

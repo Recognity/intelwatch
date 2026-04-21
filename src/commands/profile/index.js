@@ -110,7 +110,8 @@ export async function runMA(sirenOrName, options) {
   if (options.ai) {
     section('  🤖 Analyse IA — Due Diligence');
     if (!hasAIKey() && !options.uncensored) {
-      warn('     No AI API key. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.');
+      warn('     No AI provider. Vulcain Ollama (192.168.1.30:11434) should be auto-detected.');
+      warn('     Or set OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY.');
     } else {
       console.log(chalk.gray('  Generating AI due diligence analysis (JSON)...'));
       try {
