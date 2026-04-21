@@ -1,6 +1,6 @@
 {
   "name": "intelwatch",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Competitive intelligence CLI — track competitors, keywords, and brand mentions from the terminal",
   "type": "module",
   "license": "MIT",
