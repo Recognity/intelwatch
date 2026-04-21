@@ -73,8 +73,24 @@ export function buildAIPromptContext({ identity, financialHistory, consolidatedF
   }
   if (!bodaccStr) bodaccStr = 'Aucune publication';
 
-  const pressStr = pressResults.length
-    ? pressResults.slice(0, 20).map(m => `- [${m.sentiment}] ${m.title || ''} (${m.domain || m.source || ''})${m.url ? ' — URL: ' + m.url : ''}`).join('\n')
+  // Tri : d'abord Camofox-enrichis (texte plein), puis par date décroissante
+  const sortedPress = [...pressResults].sort((a, b) => {
+    if (a.camofoxEnriched && !b.camofoxEnriched) return -1;
+    if (!a.camofoxEnriched && b.camofoxEnriched) return 1;
+    return (b.publishedDate || '').localeCompare(a.publishedDate || '');
+  });
+  const pressStr = sortedPress.length
+    ? sortedPress.slice(0, 20).map(m => {
+        const date = m.publishedDate ? m.publishedDate.slice(0, 10) : '?';
+        const tag = m.camofoxEnriched ? '[FULL-TEXT]' : (m.source === 'exa' ? '[EXA]' : '[SEARXNG]');
+        const snippet = (m.snippet || '').trim().replace(/\s+/g, ' ').slice(0, 500);
+        const lines = [
+          `- [${date}] ${tag} [${m.sentiment || 'neutral'}] ${m.title || ''} (${m.domain || m.source || ''})`,
+          snippet ? `    ${snippet}` : null,
+          m.url ? `    URL: ${m.url}` : null,
+        ].filter(Boolean);
+        return lines.join('\n');
+      }).join('\n')
     : 'Aucune mention';
 
   // Procédures collectives — structured with severity and personnel

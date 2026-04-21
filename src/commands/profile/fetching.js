@@ -56,11 +56,57 @@ export async function fetchCompanyDossier(sirenOrName, frProvider, options) {
  */
 export async function fetchPressData(identity, siren, brandName) {
   const { searchPressMentions } = await import('../../scrapers/searxng-search.js');
+  const { searchCompanyPressViaExa, hasExaKey } = await import('../../scrapers/exa-search.js');
+  const { isPaywallUrl, fetchViaCamofoxBatch, checkCamofox } = await import('../../scrapers/camofox-fetch.js');
   let pressResults = [];
   let companyArticles = [];
 
-  const press = await searchPressMentions(brandName);
-  pressResults = press.mentions || [];
+  // SearxNG + Exa en parallèle — Exa est beaucoup plus pertinent sur
+  // entreprises FR médiatisées, SearxNG reste fallback généraliste.
+  const searxngPromise = searchPressMentions(brandName);
+  const exaPromise = hasExaKey()
+    ? searchCompanyPressViaExa(brandName, { siren, lookbackMonths: 24, numResults: 20 })
+    : Promise.resolve({ mentions: [], error: null, cost: 0 });
+
+  const [searxngPress, exaPress] = await Promise.all([searxngPromise, exaPromise]);
+  const press = searxngPress;
+  pressResults = searxngPress.mentions || [];
+
+  if (exaPress.mentions.length > 0) {
+    // Dédup par URL (SearxNG et Exa peuvent renvoyer la même source)
+    const seenUrls = new Set(pressResults.map(p => p.url));
+    const newExaMentions = exaPress.mentions.filter(m => !seenUrls.has(m.url));
+    pressResults.push(...newExaMentions);
+    console.log(chalk.gray(`    + ${newExaMentions.length} Exa mentions (${exaPress.cost ? `~$${exaPress.cost.toFixed(4)}` : 'free tier'})`));
+  } else if (exaPress.error && hasExaKey()) {
+    console.log(chalk.gray(`    Exa search failed: ${exaPress.error}`));
+  }
+
+  // Camofox fallback : fetch le contenu plein des URLs paywall (Les Echos, Figaro, etc.)
+  // Seulement si Camofox est up ET qu'il y a des URLs paywall parmi les mentions.
+  const paywallUrls = pressResults
+    .filter(p => isPaywallUrl(p.url) && (!p.snippet || p.snippet.length < 200))
+    .slice(0, 5)  // cap à 5 pour garder le profile rapide
+    .map(p => p.url);
+
+  if (paywallUrls.length > 0) {
+    const camofoxHealth = await checkCamofox();
+    if (camofoxHealth.available) {
+      console.log(chalk.gray(`    Camofox fetch de ${paywallUrls.length} article(s) paywall…`));
+      const fetched = await fetchViaCamofoxBatch(paywallUrls, { concurrency: 2 });
+      for (const fetch of fetched) {
+        if (fetch.error || !fetch.text) continue;
+        const mention = pressResults.find(p => p.url === fetch.url);
+        if (mention) {
+          mention.title = mention.title || fetch.title;
+          mention.snippet = fetch.text.substring(0, 800);
+          mention.camofoxEnriched = true;
+        }
+      }
+      const enrichedCount = fetched.filter(f => !f.error && f.text).length;
+      console.log(chalk.gray(`    Camofox: ${enrichedCount}/${paywallUrls.length} articles enrichis`));
+    }
+  }
 
   // M&A-focused search (parallel with company blog crawl below)
   const maSearchPromise = fetchMaSearchResults(brandName, pressResults);

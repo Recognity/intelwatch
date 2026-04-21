@@ -10,7 +10,11 @@ export function buildAIPrompts(identity, siren, ctx, codeBuiltMaHistory, options
 RÈGLES CRITIQUES :
 1. HOLDING vs GROUPE : les données "entité" (effectifs, CA) sont celles de la HOLDING (société mère). Les données "consolidées" sont celles du GROUPE ENTIER. Ne confonds JAMAIS les deux. Si la holding a 5 salariés mais le groupe consolide 60M€ de CA, c'est un GRAND groupe. Base ton analyse sur les chiffres consolidés quand disponibles.
 2. ${getPrompt('competitorRules')}
-3. CROISEMENT PRESSE : si un article de presse mentionne une acquisition, une entrée au capital (ex: fonds PE), un rachat, un partenariat — INCLUS-LE dans groupStructure et maHistory avec l'URL source. La presse révèle souvent des opérations avant le registre.
+3. CROISEMENT PRESSE : la section PRESSE ci-dessous est taguée [EXA] (recherche sémantique), [SEARXNG] (recherche généraliste) et [FULL-TEXT] (contenu intégral via Camofox, priorité absolue). Utilise les snippets fournis pour :
+   (a) identifier acquisitions, entrées PE, rachats, partenariats — INCLUS-LES dans groupStructure et maHistory avec l'URL source.
+   (b) lire ENTRE LES LIGNES : litiges clients, pertes de marchés, restructurations, difficultés opérationnelles, départs de dirigeants, communication défensive, discours de rebond, non-renouvellement de contrats. Ces signaux faibles vont dans strengths/weaknesses avec confidence="confirmed_press" et sourceUrl.
+   (c) repérer les changements de narratif entre dates (ex: "confiance en un rebond solide" 2 mois après une procédure collective = signal de restructuration en cours).
+   (d) extraire les chiffres qualitatifs non couverts par Pappers : parts de marché, clients nommés, capacités de production, sites fermés/ouverts.
 4. REPRÉSENTANTS : les personnes morales (PM) au capital sont souvent des fonds PE, des holdings familiales ou des véhicules d'investissement. Identifie-les et intègre-les dans la structure du groupe. Si tu reconnais un fonds PE connu (BPI France, IK Partners, Ardian, etc.), mentionne-le explicitement.
 5. SCORING : évalue la santé financière sur le CA CONSOLIDÉ (pas holding). Échelle 0-100 : croissance CA consolidé, rentabilité consolidée, stabilité, diversification géographique/sectorielle, gouvernance.`;
 
