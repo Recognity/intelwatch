@@ -1,4 +1,7 @@
 import { Command } from 'commander';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 import { trackCompetitor, trackKeyword, trackBrand, trackPerson } from './commands/track.js';
 import { runDiscover } from './commands/discover.js';
 import { runCheck } from './commands/check.js';
@@ -22,10 +25,14 @@ import './providers/index.js';
 
 const program = new Command();
 
+// Lire la version depuis package.json pour rester synchro lors des bumps
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
+
 program
   .name('intelwatch')
   .description('Competitive intelligence CLI — track competitors, keywords, and brand mentions from the terminal')
-  .version('1.1.6')
+  .version(pkg.version)
   .option('--lang <language>', 'Language for AI prompts and labels (en, fr)', 'en');
 
 // ─── track ────────────────────────────────────────────────────────────────────
