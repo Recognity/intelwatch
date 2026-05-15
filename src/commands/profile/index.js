@@ -102,8 +102,26 @@ export async function runMA(sirenOrName, options) {
   const offBrandSubsForMa = subsidiariesData.filter(
     s => !s.name?.toLowerCase().includes(parentBrandForMa)
   );
-  const codeBuiltMaHistory = buildMaHistoryFromCode(scrapedMaContent, offBrandSubsForMa);
+  const codeBuiltMaHistory = buildMaHistoryFromCode(scrapedMaContent, offBrandSubsForMa, bodacc || []);
   if (codeBuiltMaHistory.length) console.log(chalk.gray(`  📋 M&A timeline (${codeBuiltMaHistory.length} entries): ${codeBuiltMaHistory.map(e => `${e.target?.substring(0,15)} [${e.date}]`).join(', ')}`));
+
+  // ── Competitor discovery (always — used by AI prompt and PDF fallback) ──
+  // Lance la découverte concurrents en parallèle d'autres étapes pour ne pas
+  // alourdir la critical path. Le résultat sert au prompt AI ET de fallback
+  // direct dans le PDF si l'IA est désactivée ou renvoie une liste vide.
+  const consolidatedCa = consolidatedFinances?.[0]?.ca
+    || financialHistory?.[0]?.ca || null;
+  let competitorCandidates = { registry: [], press: [] };
+  try {
+    section('  🎯 Découverte concurrents');
+    const { fetchCompetitorCandidates } = await import('./fetching.js');
+    competitorCandidates = await fetchCompetitorCandidates(identity, consolidatedCa);
+    console.log(chalk.gray(
+      `    Candidats: ${competitorCandidates.registry.length} pairs Pappers registry, ${competitorCandidates.press.length} mentions presse`
+    ));
+  } catch (e) {
+    warn(`     Competitor discovery failed: ${e.message}`);
+  }
 
   // ── AI Analysis ───────────────────────────────────────────────────────────
   let aiAnalysis = null;
@@ -119,17 +137,6 @@ export async function runMA(sirenOrName, options) {
 
         // Refresh stale subsidiary financials in parallel
         await refreshStaleSubsidiaries(subsidiariesData, consolidatedFinances);
-
-        // Discover real competitor candidates (Pappers registry + Exa press)
-        const consolidatedCa = consolidatedFinances?.[0]?.ca
-          || financialHistory?.[0]?.ca || null;
-        const { fetchCompetitorCandidates } = await import('./fetching.js');
-        const competitorCandidates = await fetchCompetitorCandidates(identity, consolidatedCa);
-        if (competitorCandidates.registry.length || competitorCandidates.press.length) {
-          console.log(chalk.gray(
-            `    Competitor candidates: ${competitorCandidates.registry.length} from Pappers registry, ${competitorCandidates.press.length} from Exa press`
-          ));
-        }
 
         const promptCtx = buildAIPromptContext({
           identity, financialHistory, consolidatedFinances, dirigeants, ubo, bodacc,
@@ -162,7 +169,7 @@ export async function runMA(sirenOrName, options) {
       identity, financialHistory, consolidatedFinances, ubo, bodacc,
       dirigeants, representants, etablissements, proceduresCollectives,
       subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory,
-      scrapedMaContent, siren,
+      scrapedMaContent, siren, competitorCandidates,
     });
 
     try {

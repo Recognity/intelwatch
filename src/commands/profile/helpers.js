@@ -71,10 +71,11 @@ export function formatEuro(n) {
 }
 
 /**
- * Build M&A history IN CODE from scraped articles + off-brand subsidiaries.
+ * Build M&A history IN CODE from scraped articles + off-brand subsidiaries
+ * + BODACC publications (capital increases, dénomination changes, etc).
  * Returns entries with authoritative dates — AI only adds descriptions.
  */
-export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs) {
+export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = []) {
   const MONTH_MAP = {
     'janvier': '01', 'février': '02', 'mars': '03', 'avril': '04',
     'mai': '05', 'juin': '06', 'juillet': '07', 'août': '08',
@@ -129,6 +130,68 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs) {
       if (seen.has(key)) continue;
       seen.add(key);
       entries.push({ date, type: typeGuess, target: foundEntity, sourceUrl, confidence: 'confirmed_press', description: null });
+    }
+  }
+
+  // ── BODACC : capital increases + dénomination changes (deterministic) ──
+  // Pour les holdings (NOVARES, etc.), les augmentations de capital + les
+  // modifs de dénomination/forme juridique constituent la trame factuelle
+  // de l'histoire corporate. Bien plus fiable que parser de la prose presse.
+  // Trie BODACC par date croissante pour que le suivi du capital soit chrono
+  const bodaccChrono = [...bodacc].filter(p => p.date).sort((a, b) => a.date.localeCompare(b.date));
+  let lastCapitalGlobal = 0;
+  for (const pub of bodaccChrono) {
+    const date = pub.date;
+    if (!date) continue;
+    const desc = (pub.description || '').toLowerCase();
+    const type = (pub.type || '').toLowerCase();
+
+    // Capital increases — montant strictement supérieur au précédent (sinon re-dépôt)
+    if (pub.capital && (desc.includes('capital') || type.includes('capital') || desc.includes('augmentation'))) {
+      // Skip si pas de hausse ≥ 0.5% (re-filing du même capital social)
+      if (lastCapitalGlobal > 0 && pub.capital <= lastCapitalGlobal * 1.005) continue;
+      lastCapitalGlobal = pub.capital;
+      const key = `capital|${date.substring(0, 7)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        date: date.substring(0, 7),
+        type: 'capital_increase',
+        target: `Capital ${(pub.capital / 1e3).toFixed(0)}K€`,
+        sourceUrl: pub.url || null,
+        confidence: 'confirmed_registry',
+        description: null,
+      });
+    }
+
+    // Dénomination changes (rename) — Mecaplast → NOVARES type events
+    if (desc.includes('modification de la dénomination') || desc.includes('modification de la denomination')) {
+      const key = `rename|${date.substring(0, 7)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        date: date.substring(0, 7),
+        type: 'restructuration',
+        target: 'Changement de dénomination',
+        sourceUrl: pub.url || null,
+        confidence: 'confirmed_registry',
+        description: null,
+      });
+    }
+
+    // Procédures collectives / sauvegarde (signal de restructuration)
+    if (pub.isDistress) {
+      const key = `distress|${date.substring(0, 7)}|${pub.distressType || pub.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        date: date.substring(0, 7),
+        type: 'restructuration',
+        target: `Procédure ${pub.distressType || pub.type || 'collective'}`,
+        sourceUrl: pub.url || null,
+        confidence: 'confirmed_registry',
+        description: null,
+      });
     }
   }
 

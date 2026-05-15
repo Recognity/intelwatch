@@ -5,7 +5,7 @@ import { getLanguage } from '../../utils/i18n.js';
 /**
  * Build the structured data object for PDF report generation.
  */
-export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren }) {
+export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates }) {
   const fmtEuro = (n) => {
     if (n == null) return '—';
     const abs = Math.abs(n);
@@ -26,6 +26,19 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
   const growthAnalysis = buildGrowthAnalysis(aiAnalysis?.growthAnalysis, consolidatedFinances, codeBuiltMaHistory, subsidiariesData);
   const forwardLooking = buildForwardLooking(aiAnalysis?.forwardLooking, scrapedMaContent, consolidatedFinances);
 
+  // Group-level KPIs : préfère le consolidé quand dispo (holdings type NOVARES,
+  // sinon les cards Identity/Activity exposent les chiffres de l'entité mère
+  // seule, ce qui sous-évalue massivement les groupes).
+  const hasConsolidated = Array.isArray(consolidatedFinances) && consolidatedFinances.length > 0;
+  const latestConsolidated = hasConsolidated ? consolidatedFinances[0] : null;
+  const groupCa = latestConsolidated?.ca ?? financialHistory?.[0]?.ca ?? null;
+  const groupCaYear = latestConsolidated?.annee ?? financialHistory?.[0]?.annee ?? null;
+  const groupCaIsConsolidated = !!latestConsolidated?.ca;
+  // Pour "Capital" : si on a un consolidé, on affiche les capitaux propres
+  // consolidés (vue groupe), sinon le capital social de la mère.
+  const groupCapital = latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres ?? identity.capital ?? null;
+  const groupCapitalIsConsolidated = !!(latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres);
+
   return {
     aiSummary: aiAnalysis?.executiveSummary || null,
     groupStructure: (() => {
@@ -38,7 +51,37 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
       if (pappersSubs.length > 0) gs.subsidiaries = pappersSubs;
       return gs;
     })(),
-    aiCompetitors: aiAnalysis?.competitors || [],
+    aiCompetitors: (() => {
+      const aiList = aiAnalysis?.competitors || [];
+      // Filtre les "concurrents" qui sont en réalité la cible elle-même
+      // (NAF/nom strict match — l'IA hallucine parfois).
+      const targetName = (identity.name || '').toLowerCase().trim();
+      const targetSiren = String(identity.siren || '');
+      const aiFiltered = aiList.filter(c => {
+        const cName = String(c.name || '').toLowerCase().trim();
+        const cSiren = String(c.siren || '');
+        if (cSiren && cSiren === targetSiren) return false;
+        if (cName && targetName && (cName === targetName || cName.includes(targetName) || targetName.includes(cName))) return false;
+        return true;
+      });
+      if (aiFiltered.length >= 5) return aiFiltered;
+      // Fallback : si l'IA n'a pas (assez) rempli, complète avec le registre Pappers
+      const registry = competitorCandidates?.registry || [];
+      const aiSirens = new Set(aiFiltered.map(c => String(c.siren || '')).filter(Boolean));
+      const aiNames = new Set(aiFiltered.map(c => String(c.name || '').toLowerCase()));
+      const fromRegistry = registry
+        .filter(r => !aiSirens.has(String(r.siren || '')) && !aiNames.has((r.name || '').toLowerCase()))
+        .slice(0, 8 - aiFiltered.length)
+        .map(r => ({
+          name: r.name,
+          siren: r.siren,
+          source: 'pappers_registry',
+          reason: `Pair Pappers NAF ${r.naf}${r.ville ? ' · ' + r.ville : ''}`,
+          estimatedRevenue: r.ca != null ? `${(r.ca / 1e6).toFixed(1)}M€${r.caYear ? ' (' + r.caYear + ')' : ''}` : 'N/A',
+          summary: `Concurrent identifié par proximité NAF (${r.naf}) et fourchette CA${r.caYear ? ' année ' + r.caYear : ''}. ${r.ville ? 'Basé à ' + r.ville + '.' : ''}`,
+        }));
+      return [...aiFiltered, ...fromRegistry];
+    })(),
     maHistory: (aiAnalysis?.maHistory?.length ? aiAnalysis.maHistory : codeBuiltMaHistory) || [],
     riskAssessment: aiAnalysis?.riskAssessment || null,
     healthScore: aiAnalysis?.healthScore || null,
@@ -55,8 +98,12 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
         forme: identity.formeJuridique,
         creation: identity.dateCreation,
         naf: identity.nafCode ? identity.nafCode + ' — ' + identity.nafLabel : null,
-        capital: identity.capital != null ? fmtEuro(identity.capital) : 'N/A',
-        ca: financialHistory?.[0]?.ca != null ? fmtEuro(financialHistory[0].ca) : 'N/A',
+        capital: groupCapital != null
+          ? `${fmtEuro(groupCapital)}${groupCapitalIsConsolidated ? ' (CP consolidés)' : ''}`
+          : 'N/A',
+        ca: groupCa != null
+          ? `${fmtEuro(groupCa)}${groupCaYear ? ` (${groupCaYear}${groupCaIsConsolidated ? ' consolidé' : ''})` : ''}`
+          : 'N/A',
         effectifs: identity.effectifs || 'N/A',
         adresse: [identity.adresse, identity.codePostal, identity.ville].filter(Boolean).join(' '),
         dirigeants: dirigeants?.map(d => {

@@ -57,29 +57,51 @@ export async function fetchCompanyDossier(sirenOrName, frProvider, options) {
 export async function fetchPressData(identity, siren, brandName) {
   const { searchPressMentions } = await import('../../scrapers/searxng-search.js');
   const { searchCompanyPressViaExa, hasExaKey } = await import('../../scrapers/exa-search.js');
+  const { searchPressMentionsViaBrave, hasBraveKey } = await import('../../scrapers/brave-search.js');
   const { isPaywallUrl, fetchViaCamofoxBatch, checkCamofox } = await import('../../scrapers/camofox-fetch.js');
   let pressResults = [];
   let companyArticles = [];
 
-  // SearxNG + Exa en parallèle — Exa est beaucoup plus pertinent sur
-  // entreprises FR médiatisées, SearxNG reste fallback généraliste.
+  // Trois providers presse en parallèle :
+  //   - Exa  (sémantique, BYOK, le plus pertinent sur les sujets M&A FR)
+  //   - Brave (keyword API, BYOK, fallback fiable quand SearXNG est down)
+  //   - SearxNG (instances publiques + self-hosted, zéro coût)
+  // Tous trois sont non-bloquants : si un échoue, les autres remplissent.
   const searxngPromise = searchPressMentions(brandName);
   const exaPromise = hasExaKey()
     ? searchCompanyPressViaExa(brandName, { siren, lookbackMonths: 24, numResults: 20 })
-    : Promise.resolve({ mentions: [], error: null, cost: 0 });
+    : Promise.resolve({ mentions: [], error: 'EXA_API_KEY not set', cost: 0 });
+  const bravePromise = hasBraveKey()
+    ? searchPressMentionsViaBrave(brandName)
+    : Promise.resolve({ mentions: [], error: 'BRAVE_API_KEY not set' });
 
-  const [searxngPress, exaPress] = await Promise.all([searxngPromise, exaPromise]);
+  const [searxngPress, exaPress, bravePress] = await Promise.all([
+    searxngPromise, exaPromise, bravePromise,
+  ]);
   const press = searxngPress;
   pressResults = searxngPress.mentions || [];
+  console.log(chalk.gray(`    SearxNG: ${pressResults.length} mentions${searxngPress.error ? ' (err: ' + searxngPress.error + ')' : ''}`));
 
   if (exaPress.mentions.length > 0) {
-    // Dédup par URL (SearxNG et Exa peuvent renvoyer la même source)
     const seenUrls = new Set(pressResults.map(p => p.url));
     const newExaMentions = exaPress.mentions.filter(m => !seenUrls.has(m.url));
     pressResults.push(...newExaMentions);
     console.log(chalk.gray(`    + ${newExaMentions.length} Exa mentions (${exaPress.cost ? `~$${exaPress.cost.toFixed(4)}` : 'free tier'})`));
   } else if (exaPress.error && hasExaKey()) {
     console.log(chalk.gray(`    Exa search failed: ${exaPress.error}`));
+  } else if (!hasExaKey()) {
+    console.log(chalk.gray('    Exa: skipped (EXA_API_KEY non défini)'));
+  }
+
+  if (bravePress.mentions?.length > 0) {
+    const seenUrls = new Set(pressResults.map(p => p.url));
+    const newBraveMentions = bravePress.mentions.filter(m => !seenUrls.has(m.url));
+    pressResults.push(...newBraveMentions);
+    console.log(chalk.gray(`    + ${newBraveMentions.length} Brave mentions`));
+  } else if (bravePress.error && hasBraveKey()) {
+    console.log(chalk.gray(`    Brave search failed: ${bravePress.error}`));
+  } else if (!hasBraveKey()) {
+    console.log(chalk.gray('    Brave: skipped (BRAVE_API_KEY non défini)'));
   }
 
   // Camofox fallback : fetch le contenu plein des URLs paywall (Les Echos, Figaro, etc.)

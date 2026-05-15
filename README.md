@@ -101,24 +101,54 @@ intelwatch auth YOUR_LICENSE_KEY
 
 ## ⚙️ Configuration & API Keys
 
-Intelwatch brings your own keys (BYOK) for maximum privacy and limit-less scaling. Set these in your environment variables (`~/.bashrc` or `~/.zshrc`):
+Intelwatch brings your own keys (BYOK) for maximum privacy and limit-less scaling. Keys are read in this order :
+
+1. Shell environment (`~/.bashrc` / `~/.zshrc`) — wins over the file
+2. `~/.intelwatch/.env` — auto-loaded at every startup (created by `intelwatch setup`)
 
 ```bash
 # Required for AI Features (Choose one)
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-proj-..."
-
-# Required for Web Search & Discovery
-export BRAVE_SEARCH_API_KEY="BSAeG..."
+export GEMINI_API_KEY="AIza..."
 
 # Required for deep French corporate data
 export PAPPERS_API_KEY="86c0dcc..."
-
-# Required for deep International corporate data (Pro)
-export APOLLO_API_KEY="..."
 ```
 
-*(You can also use a `.env` file in your working directory).*
+### Press & Web search providers (3 paths, any combination)
+
+Intelwatch queries the three providers in parallel for press / M&A mentions. Configure at least one — the other two stay as fallback.
+
+| Provider     | Mode          | Setup                                                             |
+|--------------|---------------|-------------------------------------------------------------------|
+| **Exa.ai**   | BYOK (freemium ~$10 free credits) | `export EXA_API_KEY="01733295-..."` — semantic search, best on French M&A press |
+| **Brave**    | BYOK (freemium 2000 req/mo)       | `export BRAVE_API_KEY="BSAeG..."` — keyword API, robust news search |
+| **SearXNG**  | self-host **OR** public instance  | `export SEARXNG_URL="http://192.168.1.30:8888"` — zero recurring cost. Leave empty to auto-discover public instances. |
+
+**Recommandation Recognity stack** : `EXA_API_KEY` + `BRAVE_API_KEY` couvre 90 % des cas. Pour un déploiement on-prem, déploie SearXNG en Docker sur Vulcain (192.168.1.30) :
+
+```bash
+# On Vulcain (192.168.1.30)
+docker run -d --name searxng -p 8888:8080 \
+  -e BASE_URL=http://192.168.1.30:8888 \
+  searxng/searxng:latest
+
+# Then in ~/.intelwatch/.env
+SEARXNG_URL="http://192.168.1.30:8888"
+```
+
+### Optional providers
+
+```bash
+# International corporate data (Pro)
+export APOLLO_API_KEY="..."
+# Camofox paywall fetcher (Recognity-internal)
+export CAMOFOX_BASE="http://localhost:9377"
+# Vulcain Ollama (zero-cost AI extraction)
+export OLLAMA_HOST="http://192.168.1.30:11434"
+export OLLAMA_MODEL="qwen2.5:7b"
+```
 
 ## 🔒 Privacy & Architecture
 

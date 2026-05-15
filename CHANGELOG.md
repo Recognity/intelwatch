@@ -1,3 +1,22 @@
+## [1.7.1] - 2026-05-15
+
+### Fixed
+- **Bug #1 — Group Structure shows wrong CA/capital (holdings)**: la card *Company Identity / Activity* utilisait `identity.capital` et `financialHistory[0].ca` (entité mère seule) au lieu du consolidé. Désormais `consolidatedFinances[0].ca` et `consolidatedFinances[0].capitauxPropres` sont utilisés en priorité, avec fallback automatique sur l'entité quand aucun consolidé n'existe (PME pure). Vérifié sur NOVARES GROUP (814811592) → 1.12 Md€ consolidé, et sur SPAG (321591067, PME) → fallback OK.
+- **Bug #2 — Press search retourne 0 résultats**: ajout de Brave Search comme 3e provider en parallèle (Exa + Brave + SearxNG). Cascade non-bloquante : un provider qui échoue ne casse plus la collecte. Chargement automatique de `~/.intelwatch/.env` au démarrage (sans ça, les clés sauvegardées par `intelwatch setup` ne sont jamais lues). Vérifié NOVARES → 20 Exa + 16 Brave = 36 mentions.
+- **Bug #3 — M&A timeline n'a que 1-2 entries**: `buildMaHistoryFromCode` ingère désormais BODACC (capital_increase chronologiques avec dédup, dénomination changes, distress signals) en plus des articles scrappés et des filiales off-brand. NOVARES passe de 1 à 10 entries M&A déterministes.
+- **Bug #4 — Competitors section liste la cible elle-même**: l'IA hallucinait parfois la cible dans `aiCompetitors`. Ajout d'un filtre strict SIREN + nom, et d'un fallback automatique sur `competitorCandidates.registry` (Pappers /recherche par NAF + fourchette CA) quand l'IA renvoie moins de 5 concurrents. La découverte de candidats est désormais TOUJOURS lancée (plus seulement sous `--ai`).
+
+### Added
+- **Brave Search provider** (`src/scrapers/brave-search.js`) — BYOK freemium 2000 req/mo, fallback presse fiable quand SearxNG public est down.
+- **`~/.intelwatch/.env` autoloader** dans `bin/intelwatch.js` — clés sauvegardées par `setup` désormais lues à chaque run, shell env vars override toujours.
+- **3 fichiers de tests E2E** : `brave-search.test.js`, `profile-pdf-data.test.js`, `profile-ma-history.test.js` (12 nouveaux tests, 248 total).
+- **README — section "Press & Web search providers"** : 3 paths documentés (Exa BYOK / Brave BYOK / SearXNG self-host), avec snippet Docker pour self-host Vulcain.
+
+### Internal
+- `buildPdfData` accepte maintenant un nouveau paramètre `competitorCandidates` pour permettre la fallback registry.
+- `buildMaHistoryFromCode` accepte un 3e paramètre optionnel `bodacc` (backward compatible).
+- Découverte concurrents extraite du bloc `--ai`, exécutée en mode best-effort dès le profil complet.
+
 ## [1.3.2] - 2026-03-21
 ### Added
 - **Google Gemini Provider**: Full support for Gemini models via Google API (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) for Due Diligence AI analysis

@@ -8,3 +8,8 @@ result_*.txt
 
 # Local MCP config (project-level)
 .mcp.json
+
+# PDFs générés au runtime (jamais à versionner)
+profile-*.pdf
+export.pdf
+*.bak
