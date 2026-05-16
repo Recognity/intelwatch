@@ -2,10 +2,29 @@ import { formatEuro } from './helpers.js';
 import { buildGrowthAnalysis, buildForwardLooking } from './scoring.js';
 import { getLanguage } from '../../utils/i18n.js';
 
+// Mapping codes tranches d'effectif INSEE → libellés lisibles.
+// Référence : https://www.insee.fr/fr/information/2028195
+const INSEE_TRANCHE = {
+  '00': '0 salarié', '01': '1–2 salariés', '02': '1–2 salariés',
+  '03': '3–5 salariés', '11': '6–9 salariés', '12': '10–19 salariés',
+  '21': '20–49 salariés', '22': '50–99 salariés',
+  '31': '100–199 salariés', '32': '200–249 salariés',
+  '41': '250–499 salariés', '42': '500–999 salariés',
+  '51': '1 000–1 999 salariés', '52': '2 000–4 999 salariés',
+  '53': '5 000–9 999 salariés', '54': '10 000 salariés et plus',
+  'NN': 'Non employeur', null: null,
+};
+
+function labelEffectifs(raw, isGroupHolding) {
+  if (!raw) return 'N/A';
+  const label = INSEE_TRANCHE[String(raw).padStart(2, '0')] || String(raw);
+  return isGroupHolding ? `${label} (holding only)` : label;
+}
+
 /**
  * Build the structured data object for PDF report generation.
  */
-export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates, judilibreDecisions, inpiMarques, inpiBrevets }) {
+export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates, judilibreDecisions, inpiMarques, inpiBrevets, capitalTrajectory }) {
   const fmtEuro = (n) => {
     if (n == null) return '—';
     const abs = Math.abs(n);
@@ -34,13 +53,17 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
   const groupCa = latestConsolidated?.ca ?? financialHistory?.[0]?.ca ?? null;
   const groupCaYear = latestConsolidated?.annee ?? financialHistory?.[0]?.annee ?? null;
   const groupCaIsConsolidated = !!latestConsolidated?.ca;
-  // Pour "Capital" : si on a un consolidé, on affiche les capitaux propres
-  // consolidés (vue groupe), sinon le capital social de la mère.
-  const groupCapital = latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres ?? identity.capital ?? null;
-  const groupCapitalIsConsolidated = !!(latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres);
+  // "Capital" = capital social juridique de la holding (BODACC/Pappers).
+  // Les capitaux propres consolidés sont exposés séparément en
+  // `capitauxPropresConsolides` pour ne pas mélanger deux concepts différents
+  // sous le même label dans l'Identity card.
+  const consolidatedEquity = latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres ?? null;
 
   return {
     aiSummary: aiAnalysis?.executiveSummary || null,
+    kpiSourceLabel: hasConsolidated ? 'consolidé' : 'entité',
+    kpiSourceYear: latestConsolidated?.annee ?? financialHistory?.[0]?.annee ?? null,
+    capitalTrajectory: capitalTrajectory || null,
     groupStructure: (() => {
       const gs = aiAnalysis?.groupStructure || {};
       const pappersSubs = (subsidiariesData || [])
@@ -98,13 +121,14 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
         forme: identity.formeJuridique,
         creation: identity.dateCreation,
         naf: identity.nafCode ? identity.nafCode + ' — ' + identity.nafLabel : null,
-        capital: groupCapital != null
-          ? `${fmtEuro(groupCapital)}${groupCapitalIsConsolidated ? ' (CP consolidés)' : ''}`
-          : 'N/A',
+        capital: identity.capital != null ? fmtEuro(identity.capital) : 'N/A',
+        ...(hasConsolidated && consolidatedEquity != null
+          ? { capitauxPropresConsolides: `${fmtEuro(consolidatedEquity)}${latestConsolidated?.annee ? ` (${latestConsolidated.annee})` : ''}` }
+          : {}),
         ca: groupCa != null
           ? `${fmtEuro(groupCa)}${groupCaYear ? ` (${groupCaYear}${groupCaIsConsolidated ? ' consolidé' : ''})` : ''}`
           : 'N/A',
-        effectifs: identity.effectifs || 'N/A',
+        effectifs: labelEffectifs(identity.effectifs, hasConsolidated),
         adresse: [identity.adresse, identity.codePostal, identity.ville].filter(Boolean).join(' '),
         dirigeants: dirigeants?.map(d => {
           const name = d.nom || d.denomination || '?';

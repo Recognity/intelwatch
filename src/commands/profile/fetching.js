@@ -312,19 +312,35 @@ async function scrapeArticle(url) {
  * inventer. Massivement plus fiable que la connaissance latente du LLM,
  * surtout sur les niches (vinyle, imprimerie spécialisée, etc.).
  */
-export async function fetchCompetitorCandidates(identity, consolidatedCa) {
+export async function fetchCompetitorCandidates(identity, consolidatedCa, subsidiariesData = []) {
   const candidates = { registry: [], press: [] };
   const targetSiren = identity.siren;
   const nafCode = identity.nafCode || '';
 
+  // ── Override NAF holding → NAF de la plus grosse filiale opérationnelle ──
+  // Si la cible est une holding (ex: NOVARES 70.22Z "Conseil de gestion") et que le
+  // groupe consolidé est ≥ 50M€, on récupère le NAF de la filiale top-CA pour ne
+  // pas remonter EY/BCG/KPMG comme "concurrents".
+  let effectiveNaf = nafCode;
+  if (Array.isArray(subsidiariesData) && subsidiariesData.length > 0 && consolidatedCa && consolidatedCa > 50e6) {
+    const topSub = [...subsidiariesData].sort((a, b) => (b.ca || 0) - (a.ca || 0))[0];
+    if (topSub?.naf && topSub.naf !== nafCode) {
+      effectiveNaf = topSub.naf;
+    }
+  }
+  console.log(chalk.gray(
+    '    Effective NAF for peers: ' + effectiveNaf +
+    (effectiveNaf !== nafCode ? ' (override holding NAF ' + nafCode + ' via top-CA sub)' : '')
+  ));
+
   // ── Canal 1 : Pappers /recherche par NAF ──
   const pappersKey = process.env.PAPPERS_API_KEY;
-  if (pappersKey && nafCode) {
+  if (pappersKey && effectiveNaf) {
     try {
       const { default: axios } = await import('axios');
       const params = {
         api_token: pappersKey,
-        code_naf: nafCode,
+        code_naf: effectiveNaf,
         par_page: 20,
       };
       // Fourchette CA si CA consolidé ou entité disponible
@@ -346,7 +362,7 @@ export async function fetchCompetitorCandidates(identity, consolidatedCa) {
           caYear: h.annee_finances || null,
           effectif: h.tranche_effectif || h.effectif || null,
           ville: h.siege?.ville || '',
-          naf: h.code_naf || nafCode,
+          naf: h.code_naf || effectiveNaf,
         }))
         .sort((a, b) => (b.ca || 0) - (a.ca || 0))
         .slice(0, 10);
@@ -354,7 +370,7 @@ export async function fetchCompetitorCandidates(identity, consolidatedCa) {
       // Si < 3 pairs dans la fourchette CA, élargis sans filtre CA
       if (candidates.registry.length < 3) {
         const resp2 = await axios.get('https://api.pappers.fr/v2/recherche', {
-          params: { api_token: pappersKey, code_naf: nafCode, par_page: 20 },
+          params: { api_token: pappersKey, code_naf: effectiveNaf, par_page: 20 },
           timeout: 8000,
         });
         const hits2 = resp2.data?.resultats || [];
@@ -368,7 +384,7 @@ export async function fetchCompetitorCandidates(identity, consolidatedCa) {
             caYear: h.annee_finances || null,
             effectif: h.tranche_effectif || h.effectif || null,
             ville: h.siege?.ville || '',
-            naf: h.code_naf || nafCode,
+            naf: h.code_naf || effectiveNaf,
           }))
           .sort((a, b) => (b.ca || 0) - (a.ca || 0));
         candidates.registry.push(...extra.slice(0, 10 - candidates.registry.length));
@@ -428,7 +444,7 @@ async function fetchMaSearchResults(brandName, existingPressResults) {
       const text = ((r.title || '') + ' ' + (r.snippet || '')).toLowerCase();
       if (!text.includes(brandName.toLowerCase())) continue;
       if (existingPressResults.some(m => m.url === r.url)) continue;
-      const sent = analyzeSentiment(r.title + ' ' + r.snippet);
+      const sent = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
       results.push({ source: 'ma-search', url: r.url, domain: r.domain, title: r.title, snippet: r.snippet?.substring(0, 300), sentiment: sent.label, category: 'ma' });
     }
   } catch (err) { console.error(`[press] M&A search failed: ${err.message}`); }

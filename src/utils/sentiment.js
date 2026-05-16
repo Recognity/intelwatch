@@ -18,7 +18,46 @@ function loadWordLists() {
   return wordLists;
 }
 
-export function analyzeSentiment(text, lang = 'auto') {
+// Lexique distress FR — pondéré ×1.5 dans le scoring sentiment. Capte les
+// signaux faibles de restructuration que les lexiques généralistes ratent
+// (cf. audit OSINT review 15/05 — NOVARES press classait "procédure
+// collective", "grève", "sauvé in extremis" en neutral).
+const DISTRESS_FR = [
+  'procédure collective', 'procedure collective', 'redressement judiciaire',
+  'liquidation judiciaire', 'sauvegarde', 'conciliation', 'mandat ad hoc',
+  'plan de continuation', 'plan de cession', 'plan social', 'pse',
+  'cessation de paiement', 'cessation des paiements',
+  'grève', 'greve', 'grève illimitée',
+  'fermeture du site', 'fermeture de l\'usine', 'fermeture de site',
+  'sauvé in extremis', 'sauve in extremis', 'sauvé à la dernière minute',
+  'au bord du dépôt de bilan', 'au bord du depot de bilan',
+  'repris par', 'racheté par', 'rachete par', 'va changer de mains',
+  'dépôt de bilan', 'depot de bilan',
+  'restructuration financière', 'restructuration financiere',
+  'difficultés financières', 'difficultes financieres',
+  'pertes massives', 'perte massive',
+  'suppression de postes', 'suppression d\'emplois',
+];
+
+// Domaines qui = annonces légales / signaux distress structurels.
+const DISTRESS_DOMAINS = [
+  'annonces-legales.lefigaro.fr',
+  'annonces-legales.com',
+  'lexpansion.lexpress.fr',
+  'bodacc.fr',
+  'jal-officiel.com',
+];
+
+function detectDistressSignals(lower, domain) {
+  const hits = [];
+  for (const k of DISTRESS_FR) {
+    if (lower.includes(k)) hits.push(k);
+  }
+  const domainBoost = domain && DISTRESS_DOMAINS.some(d => domain.includes(d));
+  return { hits, domainBoost };
+}
+
+export function analyzeSentiment(text, lang = 'auto', context = {}) {
   if (!text) return { score: 0, label: 'neutral', positiveHits: [], negativeHits: [] };
 
   const lists = loadWordLists();
@@ -54,15 +93,26 @@ export function analyzeSentiment(text, lang = 'auto') {
     }
   }
 
-  const score = positiveHits.length - negativeHits.length;
+  // Boost distress (lexique restructuring FR) : pondère négatif ×1.5
+  const distress = detectDistressSignals(lower, context.domain || '');
+  const distressWeight = distress.hits.length * 1.5 + (distress.domainBoost ? 2 : 0);
+
+  const score = positiveHits.length - negativeHits.length - distressWeight;
   let label;
-  if (score > 1) label = 'positive';
-  else if (score < -1) label = 'negative';
+  if (score >= 2) label = 'positive';
+  else if (score <= -2) label = 'negative';
+  else if (distress.hits.length > 0 || distress.domainBoost) label = 'negative';
   else if (negativeHits.length > 0) label = 'slightly_negative';
   else if (positiveHits.length > 0) label = 'slightly_positive';
   else label = 'neutral';
 
-  return { score, label, positiveHits: positiveHits.slice(0, 5), negativeHits: negativeHits.slice(0, 5) };
+  return {
+    score,
+    label,
+    positiveHits: positiveHits.slice(0, 5),
+    negativeHits: [...negativeHits, ...distress.hits].slice(0, 5),
+    distressHits: distress.hits,
+  };
 }
 
 export function sentimentEmoji(label) {

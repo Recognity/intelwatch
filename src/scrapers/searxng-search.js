@@ -259,7 +259,7 @@ export async function searchPressMentions(brandName, options = {}) {
   // 1. News search
   const news = await newsSearch(brandName, { timeRange: 'month', ...options });
   for (const r of news.results) {
-    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);
+    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
     mentions.push({
       source: 'news',
       url: r.url,
@@ -278,7 +278,7 @@ export async function searchPressMentions(brandName, options = {}) {
   const web = await webSearch(`"${brandName}" avis OR actualité OR news`, { timeRange: 'week', ...options });
   for (const r of web.results) {
     if (mentions.some(m => m.url === r.url)) continue; // dedupe
-    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);
+    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
     mentions.push({
       source: 'web',
       url: r.url,
@@ -297,7 +297,7 @@ export async function searchPressMentions(brandName, options = {}) {
   const reviews = await webSearch(`"${brandName}" avis clients trustpilot`, { count: 10, ...options });
   for (const r of reviews.results) {
     if (mentions.some(m => m.url === r.url)) continue;
-    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);
+    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
     if (/trustpilot|avis|review|capterra|g2\.com|glassdoor/.test(r.url + r.title)) {
       mentions.push({
         source: 'review',

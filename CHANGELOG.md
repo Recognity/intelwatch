@@ -1,3 +1,35 @@
+## [1.7.3] - 2026-05-15
+
+### Fixed — Audit expert OSINT/DD (10 flaws sur PDF NOVARES)
+
+Session goldenteam (4 subagents parallèles dev + 1 expert audit). Tous les flaws bloquants identifiés sur le PDF NOVARES sont fixés.
+
+- **F1 — NAF dominant pour competitor seed** (`src/commands/profile/fetching.js`) : sur les holdings (NOVARES = 70.22Z Conseil), la découverte concurrents Pappers `/recherche` partait du NAF holding et remontait EY/BCG/KPMG comme "concurrents" de plasturgie auto. Nouveau : si `consolidatedCa > 50M€` et que la sub top-CA a un NAF différent, override `effectiveNaf = subsidiariesData.sort(byCA)[0].naf`. NOVARES → seed sur 29.32Z (équipements auto plastique) au lieu de 70.22Z. Log explicite `Effective NAF for peers: X (override holding NAF Y via top-CA sub)`.
+
+- **F2 — Effectifs INSEE label brut "02"** (`pdf-data.js`) : ajout table `INSEE_TRANCHE` + helper `labelEffectifs()`. NOVARES holding affiche désormais `1–2 salariés (holding only)` au lieu de `02`.
+
+- **F3 — M&A History "CAPITAL_INCREASE Registry" sans description** (`helpers.js`) : descriptions déterministes pour tous les events code-built (capital_increase avec delta vs précédent, dénomination changes, distress, off-brand subs). Fini les lignes vides.
+
+- **F4 — Sentiment lexique distress FR** (`utils/sentiment.js`) : ajout lexique 23 mots-clés restructuring FR (procédure collective, grève, fermeture, sauvé in extremis, etc.) pondéré ×1.5, + boost domain annonces-légales. Press classait "grève illimitée NOVARES" en neutral, désormais negative.
+
+- **F5 — Establishments condensé** (`shared-pdf/intel-report.js`) : table dédiée seulement si ≥5 établissements, sinon ligne inline. Récupère 1/4 de page utile.
+
+- **F6 — Capital social vs CP consolidés mélangés** (`pdf-data.js`) : Identity card sépare `Capital social` (juridique BODACC, 454M€ NOVARES) et `CP consolidés` (compta, 188M€). Plus de confusion.
+
+- **F8 — JSON response_format LLM** (`src/ai/client.js`) : tous les providers (Gemini `responseMimeType:application/json`, OpenAI `response_format`, Anthropic system suffix, Ollama `format:json`) + retry 1× sur parse fail avec system prompt strict. Mitige Gemini 3.1 Pro dégradé.
+
+- **F10 — KPI source labeling** (`pdf-data.js` + `intel-report.js`) : titre Financial KPIs suffixé "— consolidé 2024" ou "— entité 2024". Plus d'ambiguïté entité vs groupe.
+
+- **F11 — Capital trajectory narrative + chart** (`helpers.js` + `intel-report.js`) : nouvelle fonction `buildCapitalTrajectory(bodacc)` classifie chaque saut (capital_initial / augmentation_mineure / augmentation_significative / recap_signal ≥50%). Render page dédiée avec narrative + table colorée par pattern. NOVARES surface : "passé de 46.8 M€ (2016) à 454.4 M€ (2025), soit 872% sur 8.8 ans. Recap signal +143% en 2020-10". Shell-seed detect (capital ≤ 10K€ ignoré comme base) pour éviter les ratios absurdes.
+
+- **F12 — Distress classifier conciliation/mandat ad hoc** (`src/scrapers/pappers.js`) : nouvelle fonction `classifyBodaccDistress(p)` avec 8 patterns (conciliation/mandat ad hoc L.611-, sauvegarde, redressement, liquidation, plan cession, cessation paiements, clôture insuffisance, PSE). NOVARES → procédure conciliation 2026-04 désormais flaggée HIGH severity + remontée en M&A timeline.
+
+### Internal
+
+- **5 subagents parallèles** (dev × 4 + expert audit en amont) sur cette session. Workflow validé pour les sessions futures.
+- buildPdfData accepte `capitalTrajectory` (top-level export PDF data).
+- pappers.js publications_bodacc enrichi avec `isDistress`, `distressType`, `severity`, `category`, `procedureCategory` (avant : tout downstream lisait du dead code).
+
 ## [1.7.2] - 2026-05-15
 
 ### Added — Stack OSINT subtile (priorité différenciation vs Sinequa)

@@ -46,13 +46,20 @@ function baseInput(overrides = {}) {
 }
 
 describe('buildPdfData — Bug 1: Group Structure prefers consolidated finances', () => {
-  test('uses consolidated CA + capitauxPropres when available (holding case)', () => {
+  test('uses consolidated CA + exposes capitauxPropresConsolides separately (holding case)', () => {
     const out = buildPdfData(baseInput({
       consolidatedFinances: [{ annee: 2024, ca: 1120000000, capitauxPropres: 188500000 }],
     }));
     const card = out.competitors[0].pappers;
+    // CA = consolidé suffixé
     assert.match(card.ca, /1\.12B€.*2024.*consolidé/);
-    assert.match(card.capital, /188\.5M€.*CP consolidés/);
+    // Capital social = holding (pas mélangé avec CP)
+    assert.equal(card.capital, '454.3M€');
+    // CP consolidés exposés en champ séparé
+    assert.match(card.capitauxPropresConsolides, /188\.5M€.*2024/);
+    // KPI source labels au top-level
+    assert.equal(out.kpiSourceLabel, 'consolidé');
+    assert.equal(out.kpiSourceYear, 2024);
   });
 
   test('falls back to entity capital + entity CA when no consolidated (PME pure)', () => {

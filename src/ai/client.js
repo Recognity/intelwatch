@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { loadConfig } from '../config.js';
 
 // Local Ollama fallback — zero-cost inference when no cloud key is set.
@@ -51,11 +52,55 @@ export function hasAIKey() {
 }
 
 /**
+ * Strip markdown fences and attempt to parse a string as JSON.
+ * Returns true if the (stripped) text parses cleanly.
+ */
+function looksLikeValidJSON(text) {
+  if (!text || typeof text !== 'string') return false;
+  let stripped = text.trim();
+  // Strip ```json ... ``` or ``` ... ``` fences
+  if (stripped.startsWith('```')) {
+    stripped = stripped.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  }
+  try {
+    JSON.parse(stripped);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function dispatchAI(systemPrompt, userPrompt, options, aiConfig) {
+  const maxTokens = options.maxTokens || 1000;
+  const json = !!options.json;
+
+  // Force Ollama when --uncensored flag is used
+  if (options.uncensored) {
+    return callOllama(OLLAMA_HOST, OLLAMA_DEFAULT_MODEL, systemPrompt, userPrompt, maxTokens, json);
+  }
+
+  const { provider } = aiConfig;
+
+  if (provider === 'ollama') {
+    return callOllama(aiConfig.host, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
+  }
+  if (provider === 'google') {
+    return callGoogle(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
+  }
+  if (provider === 'anthropic') {
+    return callAnthropic(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
+  }
+  return callOpenAI(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
+}
+
+/**
  * Call the AI with a system + user prompt. Returns the response text.
  * Throws on API errors.
+ *
+ * options.json (boolean): enable provider-native JSON mode + a single retry
+ * with a strict instruction if the first response fails to parse.
  */
 export async function callAI(systemPrompt, userPrompt, options = {}) {
-  const maxTokens = options.maxTokens || 1000;
   const aiConfig = getAIConfig();
 
   if (!aiConfig) {
@@ -65,40 +110,48 @@ export async function callAI(systemPrompt, userPrompt, options = {}) {
     );
   }
 
-  // Force Ollama when --uncensored flag is used
-  if (options.uncensored) {
-    return callOllama(OLLAMA_HOST, OLLAMA_DEFAULT_MODEL, systemPrompt, userPrompt, maxTokens);
-  }
+  const firstResponse = await dispatchAI(systemPrompt, userPrompt, options, aiConfig);
 
-  const { provider } = aiConfig;
+  // No JSON contract requested → return raw response.
+  if (!options.json) return firstResponse;
 
-  if (provider === 'ollama') {
-    return callOllama(aiConfig.host, aiConfig.model, systemPrompt, userPrompt, maxTokens);
+  if (looksLikeValidJSON(firstResponse)) return firstResponse;
+
+  // One retry with aggressive system prompt suffix.
+  console.log(chalk.gray('  ⚠ AI returned malformed JSON, retrying with strict instruction...'));
+  const strictSystem =
+    'You must return ONLY a single valid JSON object. No prose, no markdown, no fences. ' +
+    'Start with { and end with }.\n\n' + systemPrompt;
+  try {
+    const retryResponse = await dispatchAI(strictSystem, userPrompt, options, aiConfig);
+    return retryResponse;
+  } catch (e) {
+    // Retry network/API error → fall back to the original (possibly malformed) response;
+    // the downstream extractor will run its 3 fallback strategies.
+    console.error(chalk.gray(`  ⚠ JSON retry failed (${e.message}); returning original response.`));
+    return firstResponse;
   }
-  if (provider === 'google') {
-    return callGoogle(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
-  }
-  if (provider === 'anthropic') {
-    return callAnthropic(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
-  }
-  return callOpenAI(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens);
 }
 
-async function callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens) {
+async function callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens, json = false) {
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  };
+  if (json) {
+    body.response_format = { type: 'json_object' };
+  }
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -110,7 +163,11 @@ async function callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens) {
   return data.choices[0].message.content.trim();
 }
 
-async function callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens) {
+async function callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens, json = false) {
+  // Anthropic has no native JSON mode — append a strict instruction to the system prompt.
+  const finalSystem = json
+    ? `${systemPrompt} Return ONLY a single JSON object, no markdown fences, no prose before/after.`
+    : systemPrompt;
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -121,7 +178,7 @@ async function callAnthropic(apiKey, model, systemPrompt, userPrompt, maxTokens)
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system: finalSystem,
       messages: [{ role: 'user', content: userPrompt }],
     }),
   });
@@ -157,9 +214,17 @@ export function estimateCost(inputChars, outputChars, provider = 'ollama') {
 }
 
 
-async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens) {
+async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens, json = false) {
   // Use v1beta for Gemini 2.5
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const generationConfig = {
+    maxOutputTokens: maxTokens,
+    temperature: 0.2,
+  };
+  if (json) {
+    // See https://ai.google.dev/api/generate-content#GenerationConfig
+    generationConfig.responseMimeType = 'application/json';
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -168,10 +233,7 @@ async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature: 0.2
-      }
+      generationConfig,
     }),
   });
 
@@ -187,25 +249,30 @@ async function callGoogle(apiKey, model, systemPrompt, userPrompt, maxTokens) {
   return data.candidates[0].content.parts[0].text.trim();
 }
 
-async function callOllama(host, model, systemPrompt, userPrompt, maxTokens) {
+async function callOllama(host, model, systemPrompt, userPrompt, maxTokens, json = false) {
   const url = `${host.replace(/\/$/, '')}/api/chat`;
+  const body = {
+    model: model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    stream: false,
+    options: {
+      num_ctx: 16384,
+      num_predict: maxTokens
+    }
+  };
+  if (json) {
+    // Ollama native JSON mode — constrains output to valid JSON.
+    body.format = 'json';
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      stream: false,
-      options: {
-        num_ctx: 16384,
-        num_predict: maxTokens
-      }
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

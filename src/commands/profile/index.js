@@ -11,7 +11,7 @@ import { resolveFRProvider, handleLicenseGating } from './provider.js';
 import { fetchCompanyDossier, fetchPressData, scrapeDeepMaContent, refreshStaleSubsidiaries } from './fetching.js';
 import { computeGrowthData, buildAIPromptContext, mergeMaHistory } from './scoring.js';
 import { renderIdentity, renderPreview, renderFullSections, renderDigitalFootprint, renderSubsidiaries, renderPressSummary, renderAIAnalysis } from './display.js';
-import { extractAIJSON, buildMaHistoryFromCode } from './helpers.js';
+import { extractAIJSON, buildMaHistoryFromCode, buildCapitalTrajectory } from './helpers.js';
 import { buildAIPrompts } from './prompts.js';
 import { buildPdfData } from './pdf-data.js';
 
@@ -105,6 +105,16 @@ export async function runMA(sirenOrName, options) {
   const codeBuiltMaHistory = buildMaHistoryFromCode(scrapedMaContent, offBrandSubsForMa, bodacc || []);
   if (codeBuiltMaHistory.length) console.log(chalk.gray(`  📋 M&A timeline (${codeBuiltMaHistory.length} entries): ${codeBuiltMaHistory.map(e => `${e.target?.substring(0,15)} [${e.date}]`).join(', ')}`));
 
+  // ── Capital trajectory (F11) — narrative chrono des augmentations de capital ──
+  const capitalTrajectory = buildCapitalTrajectory(bodacc || []);
+  if (capitalTrajectory.events.length >= 2) {
+    section('  💰 Capital trajectory');
+    console.log(chalk.gray(`    ${capitalTrajectory.narrative}`));
+    if (capitalTrajectory.hasRecapSignal) {
+      console.log(chalk.yellow(`    ⚡ Recap signal détecté (Δmax: ${capitalTrajectory.maxDeltaPct.toFixed(0)}%)`));
+    }
+  }
+
   // ── OSINT enrichments en parallèle : décisions de justice + marques INPI ──
   // Tous deux BYOK (JUDILIBRE_KEY_ID, INPI_USERNAME/PASSWORD).
   // Non-bloquant : ne casse pas le profil si l'API n'est pas configurée.
@@ -162,7 +172,7 @@ export async function runMA(sirenOrName, options) {
   try {
     section('  🎯 Découverte concurrents');
     const { fetchCompetitorCandidates } = await import('./fetching.js');
-    competitorCandidates = await fetchCompetitorCandidates(identity, consolidatedCa);
+    competitorCandidates = await fetchCompetitorCandidates(identity, consolidatedCa, subsidiariesData);
     console.log(chalk.gray(
       `    Candidats: ${competitorCandidates.registry.length} pairs Pappers registry, ${competitorCandidates.press.length} mentions presse`
     ));
@@ -194,7 +204,7 @@ export async function runMA(sirenOrName, options) {
 
         const { systemPrompt, userPrompt } = buildAIPrompts(identity, siren, promptCtx, codeBuiltMaHistory, options);
 
-        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192, uncensored: options.uncensored });
+        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192, uncensored: options.uncensored, json: true });
         aiAnalysis = extractAIJSON(raw);
 
         if (aiAnalysis) {
@@ -217,7 +227,7 @@ export async function runMA(sirenOrName, options) {
       dirigeants, representants, etablissements, proceduresCollectives,
       subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory,
       scrapedMaContent, siren, competitorCandidates,
-      judilibreDecisions, inpiMarques, inpiBrevets,
+      judilibreDecisions, inpiMarques, inpiBrevets, capitalTrajectory,
     });
 
     try {

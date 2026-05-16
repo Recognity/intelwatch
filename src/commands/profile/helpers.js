@@ -140,6 +140,7 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
   // Trie BODACC par date croissante pour que le suivi du capital soit chrono
   const bodaccChrono = [...bodacc].filter(p => p.date).sort((a, b) => a.date.localeCompare(b.date));
   let lastCapitalGlobal = 0;
+  let lastCapitalDate = null;
   for (const pub of bodaccChrono) {
     const date = pub.date;
     if (!date) continue;
@@ -150,7 +151,10 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
     if (pub.capital && (desc.includes('capital') || type.includes('capital') || desc.includes('augmentation'))) {
       // Skip si pas de hausse ≥ 0.5% (re-filing du même capital social)
       if (lastCapitalGlobal > 0 && pub.capital <= lastCapitalGlobal * 1.005) continue;
+      const prevCapital = lastCapitalGlobal;
+      const prevDate = lastCapitalDate;
       lastCapitalGlobal = pub.capital;
+      lastCapitalDate = date;
       const key = `capital|${date.substring(0, 7)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -160,7 +164,7 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
         target: `Capital ${(pub.capital / 1e3).toFixed(0)}K€`,
         sourceUrl: pub.url || null,
         confidence: 'confirmed_registry',
-        description: null,
+        description: `Augmentation du capital social à ${(pub.capital / 1e3).toFixed(0)} K€${prevCapital > 0 ? ` (delta +${((pub.capital - prevCapital) / 1e3).toFixed(0)} K€ vs ${prevDate.substring(0, 7)})` : ' (création / capital initial)'}. Publication BODACC.`,
       });
     }
 
@@ -175,7 +179,7 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
         target: 'Changement de dénomination',
         sourceUrl: pub.url || null,
         confidence: 'confirmed_registry',
-        description: null,
+        description: "Changement de dénomination sociale enregistré au registre. Signal de repositionnement marque ou refonte d'identité corporate.",
       });
     }
 
@@ -190,7 +194,7 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
         target: `Procédure ${pub.distressType || pub.type || 'collective'}`,
         sourceUrl: pub.url || null,
         confidence: 'confirmed_registry',
-        description: null,
+        description: `Procédure ${pub.distressType?.replace('_', ' ') || pub.type}. Signal de restructuration ${pub.procedureCategory || 'judiciaire'}.`,
       });
     }
   }
@@ -208,9 +212,127 @@ export function buildMaHistoryFromCode(scrapedMaContent, offBrandSubs, bodacc = 
     const key = `${(sub.name || '').toLowerCase().substring(0, 15)}|registry`;
     if (seen.has(key)) continue;
     seen.add(key);
-    entries.push({ date, type: 'acquisition', target: sub.name, sourceUrl: null, confidence: 'confirmed_registry', description: null });
+    entries.push({
+      date,
+      type: 'acquisition',
+      target: sub.name,
+      sourceUrl: null,
+      confidence: 'confirmed_registry',
+      description: `Filiale ${sub.name} acquise (créée ou rattachée le ${sub.dateCreation}). ${sub.ca ? `Activité ${(sub.ca / 1e6).toFixed(1)} M€ (${sub.annee}).` : ''}`,
+    });
   }
 
   entries.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   return entries;
+}
+
+/**
+ * Build capital trajectory narrative from BODACC publications.
+ * Detects recap signals (LBO secondaire / nouvelle entrée investisseur) via
+ * sauts massifs (≥50%) sur le capital social. Skip re-filings (<0.5%).
+ * Renvoie { events, narrative, hasRecapSignal, maxDeltaPct } pour exposition PDF.
+ */
+export function buildCapitalTrajectory(bodacc = []) {
+  // 1. Filtre + tri chrono
+  const pubs = (bodacc || [])
+    .filter(p => p && p.capital && p.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const events = [];
+  let prevCapital = 0;
+  let prevDate = null;
+
+  for (const pub of pubs) {
+    const capital = pub.capital;
+    const date = pub.date;
+
+    if (prevCapital === 0) {
+      events.push({
+        date,
+        capital,
+        deltaPct: null,
+        deltaAbs: 0,
+        pattern: 'capital_initial',
+      });
+      prevCapital = capital;
+      prevDate = date;
+      continue;
+    }
+
+    const deltaAbs = capital - prevCapital;
+    const deltaPct = (capital / prevCapital - 1) * 100;
+
+    // Skip re-filings (sub-0.5% jitter)
+    if (Math.abs(deltaPct) < 0.5) continue;
+
+    // Shell-seed reset : si on part d'un capital social ≤ 10 K€ (constitution
+    // d'une coquille), le premier saut "réel" doit être marqué `capital_initial`
+    // au lieu d'un % à 4 chiffres absurde — sinon le narrative dit "passé de
+    // 1K€ à 454M€ soit 45 millions de pourcents", ce qui détruit la lecture.
+    const isShellSeed = prevCapital <= 10_000 && capital > prevCapital * 100;
+    if (isShellSeed) {
+      events.push({ date, capital, deltaPct: null, deltaAbs, pattern: 'capital_initial' });
+      prevCapital = capital;
+      prevDate = date;
+      continue;
+    }
+
+    let pattern;
+    if (deltaPct >= 50) pattern = 'recap_signal';
+    else if (deltaPct >= 10) pattern = 'augmentation_significative';
+    else pattern = 'augmentation_mineure';
+
+    events.push({ date, capital, deltaPct, deltaAbs, pattern });
+    prevCapital = capital;
+    prevDate = date;
+  }
+
+  // 3-4. Build narrative + flags
+  let narrative;
+  let hasRecapSignal = false;
+  let maxDeltaPct = 0;
+  let maxDeltaDate = null;
+
+  for (const ev of events) {
+    if (ev.pattern === 'recap_signal') hasRecapSignal = true;
+    if (ev.deltaPct != null && ev.deltaPct > maxDeltaPct) {
+      maxDeltaPct = ev.deltaPct;
+      maxDeltaDate = ev.date;
+    }
+  }
+
+  if (events.length >= 2) {
+    // Base de référence : dernier `capital_initial` ou shell-seed plutôt que
+    // tout premier event (constitution coquille avec 1 K€ fausse le %).
+    const meaningfulStart = (() => {
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].pattern === 'capital_initial') return events[i];
+      }
+      return events[0];
+    })();
+    const last = events[events.length - 1];
+    const startCapital = meaningfulStart.capital;
+    const totalPct = startCapital > 0
+      ? ((last.capital / startCapital - 1) * 100).toFixed(0)
+      : null;
+    const startMonth = meaningfulStart.date.substring(0, 7);
+    const endMonth = last.date.substring(0, 7);
+
+    // Span en mois
+    const [sy, sm] = startMonth.split('-').map(Number);
+    const [ey, em] = endMonth.split('-').map(Number);
+    const months = Math.max(1, (ey - sy) * 12 + (em - sm));
+    const spanLabel = months >= 12 ? `${(months / 12).toFixed(1)} ans` : `${months} mois`;
+
+    const recapPart = hasRecapSignal
+      ? `Recap signal détecté : saut de ${maxDeltaPct.toFixed(0)}% en ${maxDeltaDate.substring(0, 7)}, pattern typique d'entrée d'investisseur (LBO secondaire ou augmentation de tour majeure).`
+      : "Trajectoire d'augmentations progressives, pas de recap signal majeur.";
+
+    const fmtK = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + ' M€' : (n / 1e3).toFixed(0) + ' K€';
+    narrative = `Capital social passé de ${fmtK(startCapital)} (${startMonth}) à ${fmtK(last.capital)} (${endMonth})${totalPct != null ? `, soit ${totalPct}%` : ''} sur ${spanLabel}. ${recapPart}`;
+  } else {
+    narrative = 'Capital social inchangé sur la période observée.';
+  }
+
+  return { events, narrative, hasRecapSignal, maxDeltaPct };
 }

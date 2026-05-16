@@ -127,6 +127,50 @@ export async function pappersGetFullDossier(siren) {
     }));
 
     // BODACC publications — last 50 (captures M&A activity)
+    //
+    // Classifier local : flag les publications de procédure (préventives + collectives).
+    // Priorité PRÉVENTIVE (mandat ad hoc / conciliation / L.611-) = signal pré-procédure haute valeur.
+    // Les modifs classiques (capital, dénomination, etc.) restent isDistress=false.
+    function classifyBodaccDistress(p) {
+      const actes = (p.acte?.actes_publies || []).map(a => a.type_acte).filter(Boolean);
+      const haystack = [p.description || '', p.type || '', actes.join(' ')].join(' ').toLowerCase();
+
+      // 1) Préventif — PRIORITÉ (signal pré-procédure majeur cf. audit Zalis 12/05)
+      if (/conciliation|mandat ad hoc|homologation accord|l\.?\s*611-/i.test(haystack)) {
+        return { isDistress: true, distressType: 'conciliation', severity: 'high', category: 'distress', procedureCategory: 'preventive' };
+      }
+      // 2) Cessation des paiements (déclaration explicite)
+      if (/cessation de paiement/i.test(haystack)) {
+        return { isDistress: true, distressType: 'cessation_paiements', severity: 'critical', category: 'distress', procedureCategory: 'redressement' };
+      }
+      // 3) Clôture pour insuffisance d'actif
+      if (/cl[ôo]ture.*insuffisance d['’ ]actif/i.test(haystack)) {
+        return { isDistress: true, distressType: 'cloture_insuffisance', severity: 'critical', category: 'distress', procedureCategory: 'liquidation' };
+      }
+      // 4) Liquidation (judiciaire ou amiable)
+      if (/liquidation judiciaire|liquidation amiable/i.test(haystack)) {
+        return { isDistress: true, distressType: 'liquidation', severity: 'critical', category: 'distress', procedureCategory: 'liquidation' };
+      }
+      // 5) Redressement judiciaire
+      if (/redressement judiciaire/i.test(haystack)) {
+        return { isDistress: true, distressType: 'redressement_judiciaire', severity: 'critical', category: 'distress', procedureCategory: 'redressement' };
+      }
+      // 6) Sauvegarde
+      if (/sauvegarde/i.test(haystack)) {
+        return { isDistress: true, distressType: 'sauvegarde', severity: 'high', category: 'distress', procedureCategory: 'sauvegarde' };
+      }
+      // 7) Plan de cession / continuation
+      if (/plan de cession|plan de continuation/i.test(haystack)) {
+        return { isDistress: true, distressType: 'plan_cession', severity: 'high', category: 'distress', procedureCategory: 'restructuration' };
+      }
+      // 8) PSE / plan social
+      if (/publication d[ée]cision pse|plan social|pse\b/i.test(haystack)) {
+        return { isDistress: true, distressType: 'pse', severity: 'medium', category: 'distress', procedureCategory: 'restructuration' };
+      }
+      // Sinon → modif classique (capital, dénomination, etc.) — non distress
+      return { isDistress: false, distressType: null, severity: null, category: 'other', procedureCategory: null };
+    }
+
     const bodacc = (d.publications_bodacc || []).slice(0, 50).map(p => {
       // Build rich description from all available fields
       const parts = [];
@@ -143,6 +187,7 @@ export async function pappersGetFullDossier(siren) {
       const bodaccUrl = p.numero_parution && p.numero_annonce
         ? `https://www.bodacc.fr/pages/annonces-commerciales-detail/?q.id=id:${bodaccLetter}${p.numero_parution}${p.numero_annonce}`
         : null;
+      const distress = classifyBodaccDistress(p);
       return {
         date: p.date,
         type: p.type,
@@ -153,6 +198,7 @@ export async function pappersGetFullDossier(siren) {
         url: bodaccUrl,
         capital: p.capital || null,
         rcs: p.rcs || null,
+        ...distress,
       };
     });
 

@@ -134,7 +134,7 @@ export async function searchPressMentionsViaBrave(brandName, options = {}) {
   // 1) News fresh (30j)
   const news = await braveNewsSearch(brandName, { freshness: 'pm', count: 20, ...options });
   for (const r of news.results) {
-    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);
+    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
     mentions.push({
       source: 'brave-news',
       url: r.url,
@@ -152,7 +152,7 @@ export async function searchPressMentionsViaBrave(brandName, options = {}) {
   const web = await braveWebSearch(`"${brandName}" actualité OR communiqué OR acquisition OR croissance`, { freshness: 'py', count: 15, ...options });
   for (const r of web.results) {
     if (mentions.some(m => m.url === r.url)) continue;
-    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet);
+    const sentiment = analyzeSentiment(r.title + ' ' + r.snippet, 'auto', { domain: r.domain || r.source || '' });
     mentions.push({
       source: 'brave-web',
       url: r.url,
