@@ -1,3 +1,29 @@
+## [1.7.4] - 2026-05-16
+
+### Added — Golden Team validation run
+
+Session Golden Team complète (expert métier → manager → 3 devs parallèle + 1 assembleur → designer → reviewer pair → validateur → DevOps + doc + security). 7 must-haves PDF DD/M&A livrés.
+
+- **MH1 — Executive Summary page 1** (`src/commands/profile/pdf-blocks/executive-summary.js` + render shared-pdf) : Investment Thesis 2-3 phrases + Top 3 Red Flags ordonnés par severity + Recommendation tranchée (`distressed_ma` / `watchlist` / `pass`) dès la page 1 du PDF.
+
+- **MH2 — Health Score gauge + 6 ratios financiers nommés** (`src/commands/profile/pdf-blocks/health-ratios.js` + SVG gauge demi-cercle 0-100) : Net Debt/EBITDA (seuil distress 3.5×), ROE, BFR/CA, Debt/Equity, Autonomie financière, Cash Runway. Chaque ratio nommé + valeur + verdict color-coded.
+
+- **MH3 — 3 SVG inline charts** (`shared-pdf/src/templates/intel-report.js`) : Capital Trajectory step-line (BODACC capital evolution), Press Sentiment timeline 24m (negative/neutral/positive stacked), Health Gauge demi-cercle 0-100. Tout inline SVG, zéro hotlink.
+
+- **MH4 — Key Man Risk auto-flag** (`src/commands/profile/pdf-blocks/key-man-risk.js`) : détection ≥3 changements Président OU ≥2 CAC sur 18 mois glissants, regex `\b`-bounded strict (évite faux positifs sur sous-strings), dédup BODACC par `(date, role, person)` avant comptage.
+
+- **MH5 — Peer Median Multiples avec circuit breaker Pappers** (`src/commands/profile/pdf-blocks/peer-multiples.js` + nouveau scraper `src/scrapers/pappers-peers.js`) : pool concurrent limité à 4, cache disque 7 jours, fail-soft sur 429/401 (warn + valeur `unknown`, pas retry storm), guard SSRF (block IP privées). Median EV/EBITDA + EV/Revenue + Price/Book sur peers same-NAF.
+
+- **MH6 — BFR drift YoY + Cash Runway narrative** (inclus dans `health-ratios.js`) : narrative explicite en mois de runway restant à burn rate constant + alerte si BFR drift > 20% YoY.
+
+- **MH7 — Provenance Footer global** (`src/commands/profile/pdf-blocks/provenance-footer.js`) : sources listées explicitement (Pappers, BODACC, INSEE, Judilibre, INPI, press) + badge "100% public sources · TDM-compliant" en pied de PDF. Lugus doctrine juridique data appliquée.
+
+### Internal
+
+- **Workflow Golden Team complet validé** : Expert métier amont (cadre M&A DD) → Manager (split en 7 MH + acceptance criteria) → Dev × 3 parallèle + 1 assembleur → Designer (layout + SVG inline) → Reviewer pair → Validateur final → DevOps release + doc + security check. Process reproductible pour les sessions à fort enjeu.
+- **Reviewer pair a attrapé 4 blockers** fixés avant validateur : A1 — PME avec data vide affichait `green / 70` faute de fallback, désormais `unknown` si ≥4 ratios unknown sur 6. A2 — seuils Net Debt/EBITDA hardcodés ailleurs, centralisés. A3 — Key Man Risk regex non-bounded matchait `président` dans `vice-président`, fixé `\b` + dédup. A4 — Pappers peer count comptait sans dédup SIREN, backbone fixé.
+- **Validateur a attrapé 3 issues post-merge** fixées : Key Man Risk evidence cross-signal dup (même event remontait dans Top 3 Red Flags ET Key Man section), Top 3 Red Flags doublons inter-blocks, Recommendation threshold borderline (score 49 → `pass` au lieu de `watchlist`, ajusté à 45/65).
+
 ## [1.7.3] - 2026-05-15
 
 ### Fixed — Audit expert OSINT/DD (10 flaws sur PDF NOVARES)

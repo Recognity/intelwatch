@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { pappersSearchSubsidiaries } from '../../scrapers/pappers.js';
+import { pappersSearchPeers } from '../../scrapers/pappers-peers.js';
 import { callAI, hasAIKey } from '../../ai/client.js';
 import { section, warn } from '../../utils/display.js';
 import { setLanguage, getLanguage } from '../../utils/i18n.js';
@@ -14,6 +15,7 @@ import { renderIdentity, renderPreview, renderFullSections, renderDigitalFootpri
 import { extractAIJSON, buildMaHistoryFromCode, buildCapitalTrajectory } from './helpers.js';
 import { buildAIPrompts } from './prompts.js';
 import { buildPdfData } from './pdf-data.js';
+import { buildPeerMultiplesBlock } from './pdf-blocks/peer-multiples.js';
 
 export async function runMA(sirenOrName, options) {
   const isPreview = !!options.preview;
@@ -113,6 +115,28 @@ export async function runMA(sirenOrName, options) {
     if (capitalTrajectory.hasRecapSignal) {
       console.log(chalk.yellow(`    ⚡ Recap signal détecté (Δmax: ${capitalTrajectory.maxDeltaPct.toFixed(0)}%)`));
     }
+  }
+
+  // ── Peer median multiples (MH5) ──────────────────────────────────────────
+  section('  📊 Peer median multiples');
+  let peerMultiples = null;
+  try {
+    const ownMetrics = {
+      margeEbitda: consolidatedFinances?.[0]?.margeEbitda ?? financialHistory?.[0]?.margeEbitda ?? null,
+      roe: consolidatedFinances?.[0]?.rentabiliteFP ?? financialHistory?.[0]?.rentabiliteFP ?? null,
+      growthYoY: (consolidatedFinances?.length >= 2 && consolidatedFinances[0].ca && consolidatedFinances[1].ca)
+        ? ((consolidatedFinances[0].ca / consolidatedFinances[1].ca - 1) * 100) : null,
+    };
+    // Le NAF effectif sera décidé par fetchCompetitorCandidates plus loin, mais
+    // ici on prend le NAF des subs top-CA si > 50M€ pour être cohérent
+    const consolidatedCaForNaf = consolidatedFinances?.[0]?.ca || financialHistory?.[0]?.ca || 0;
+    const effectiveNaf = (subsidiariesData?.length && (consolidatedCaForNaf || 0) > 50_000_000)
+      ? (subsidiariesData.slice().sort((a, b) => (b.ca || 0) - (a.ca || 0))[0]?.naf || identity.nafCode)
+      : identity.nafCode;
+    peerMultiples = await buildPeerMultiplesBlock({ naf: effectiveNaf, sirenSelf: siren, ownMetrics });
+    console.log(chalk.gray(`    Peer multiples: sample=${peerMultiples?.sampleSize ?? 0}${peerMultiples?.fromCache ? ' (cache)' : ''}`));
+  } catch (e) {
+    warn(`     Peer multiples failed: ${e.message}`);
   }
 
   // ── OSINT enrichments en parallèle : décisions de justice + marques INPI ──
@@ -228,6 +252,7 @@ export async function runMA(sirenOrName, options) {
       subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory,
       scrapedMaContent, siren, competitorCandidates,
       judilibreDecisions, inpiMarques, inpiBrevets, capitalTrajectory,
+      peerMultiples,
     });
 
     try {

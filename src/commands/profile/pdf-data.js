@@ -1,6 +1,11 @@
 import { formatEuro } from './helpers.js';
 import { buildGrowthAnalysis, buildForwardLooking } from './scoring.js';
 import { getLanguage } from '../../utils/i18n.js';
+import { buildExecutiveSummaryBlock } from './pdf-blocks/executive-summary.js';
+import { buildProvenanceFooterBlock } from './pdf-blocks/provenance-footer.js';
+import { buildHealthScoreBlock } from './pdf-blocks/health-ratios.js';
+import { buildKeyManRiskBlock } from './pdf-blocks/key-man-risk.js';
+import { buildPeerMultiplesBlock } from './pdf-blocks/peer-multiples.js';
 
 // Mapping codes tranches d'effectif INSEE → libellés lisibles.
 // Référence : https://www.insee.fr/fr/information/2028195
@@ -24,7 +29,7 @@ function labelEffectifs(raw, isGroupHolding) {
 /**
  * Build the structured data object for PDF report generation.
  */
-export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates, judilibreDecisions, inpiMarques, inpiBrevets, capitalTrajectory }) {
+export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates, judilibreDecisions, inpiMarques, inpiBrevets, capitalTrajectory, peerMultiples }) {
   const fmtEuro = (n) => {
     if (n == null) return '—';
     const abs = Math.abs(n);
@@ -59,7 +64,38 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
   // sous le même label dans l'Identity card.
   const consolidatedEquity = latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres ?? null;
 
+  // ── Structured blocks (MH1/MH3/MH4/MH7) ───────────────────────────────────
+  const healthScoreBlock = buildHealthScoreBlock({
+    financialHistory,
+    consolidatedFinances,
+    aiHealthScore: aiAnalysis?.healthScore,
+  });
+  const keyManRisk = buildKeyManRiskBlock({ bodacc, dirigeants, representants });
+  const executiveSummary = buildExecutiveSummaryBlock({
+    healthScore: healthScoreBlock?.score,
+    riskAssessment: aiAnalysis?.riskAssessment,
+    capitalTrajectory,
+    bodacc,
+    keyManRisk,
+    ratios: healthScoreBlock?.ratios,
+    aiSummary: aiAnalysis?.executiveSummary,
+    identity,
+  });
+  const provenanceFooter = buildProvenanceFooterBlock({
+    pressMentions: pressResults,
+    bodacc,
+    judilibre: judilibreDecisions,
+    inpi: { marques: inpiMarques, brevets: inpiBrevets },
+    consolidatedFinances,
+    dirigeants,
+  });
+
   return {
+    executiveSummary,
+    provenanceFooter,
+    healthScoreBlock,
+    keyManRisk,
+    peerMultiples: peerMultiples || null,
     aiSummary: aiAnalysis?.executiveSummary || null,
     kpiSourceLabel: hasConsolidated ? 'consolidé' : 'entité',
     kpiSourceYear: latestConsolidated?.annee ?? financialHistory?.[0]?.annee ?? null,
