@@ -14,11 +14,15 @@ export function extractAIJSON(text) {
     console.log('🔍 Raw AI response:', text.substring(0, 200) + '...');
   }
 
-  // Try three strategies: direct parse, stripped markdown, regex extract
+  // Try four strategies. Last one salvages partial fields even when JSON
+  // is truncated (Gemini 3.1 Pro returns cut-off JSON beyond maxTokens —
+  // cf. memory `project_gemini_31_pro_degradation`).
   const strategies = [
     () => JSON.parse(text),
     () => JSON.parse(text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()),
     () => { const m = text.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('no match'); },
+    // Salvage : extract top-level string fields even from truncated/broken JSON
+    () => salvagePartialJSON(text),
   ];
 
   for (const strategy of strategies) {
@@ -35,6 +39,35 @@ export function extractAIJSON(text) {
 
   console.error('❌ Failed to parse AI response as JSON. Run with DEBUG_AI=1 for details.');
   return null;
+}
+
+/**
+ * Salvage les champs string top-level d'un JSON tronqué ou cassé. Permet
+ * de récupérer au moins l'executiveSummary quand l'IA coupe à maxTokens.
+ * Ne traite que les champs strings simples (pas d'objets/arrays imbriqués).
+ */
+function salvagePartialJSON(text) {
+  const result = {};
+  const fields = [
+    'executiveSummary', 'aiComment', 'description', 'summary',
+    'recoLabel', 'narrative',
+  ];
+  for (const field of fields) {
+    // Regex multi-line, gère échappements \" et \\
+    const re = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+    const match = text.match(re);
+    if (match && match[1]) {
+      result[field] = match[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+    }
+  }
+  if (Object.keys(result).length === 0) {
+    throw new Error('salvage extracted nothing');
+  }
+  if (process.env.DEBUG_AI) console.log(`🩹 Salvaged ${Object.keys(result).length} fields from broken JSON`);
+  return result;
 }
 
 function normalizeStrengthsWeaknesses(parsed) {

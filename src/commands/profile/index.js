@@ -228,7 +228,7 @@ export async function runMA(sirenOrName, options) {
 
         const { systemPrompt, userPrompt } = buildAIPrompts(identity, siren, promptCtx, codeBuiltMaHistory, options);
 
-        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 8192, uncensored: options.uncensored, json: true });
+        const raw = await callAI(systemPrompt, userPrompt, { maxTokens: 16384, uncensored: options.uncensored, json: true });
         aiAnalysis = extractAIJSON(raw);
 
         if (aiAnalysis) {

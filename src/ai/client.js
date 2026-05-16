@@ -11,20 +11,40 @@ const OLLAMA_DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
  * Resolve AI provider config: env vars take priority, then config file, then local Ollama.
  * Returns null ONLY if explicitly no provider.
  */
-export function getAIConfig() {
+/**
+ * Build the full provider priority list — all configured providers in fallback
+ * order. callAI itère sur cette liste si un provider renvoie 402/401/5xx pour
+ * mitiger les crédits épuisés / clés invalides / outages.
+ */
+export function getAIConfigList() {
+  const envOpenRouter = process.env.OPENROUTER_API_KEY;
   const envGoogle = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
   const envOpenAI = process.env.OPENAI_API_KEY;
   const envAnthropic = process.env.ANTHROPIC_API_KEY;
+  const configs = [];
 
+  if (envOpenRouter) {
+    configs.push({
+      provider: 'openrouter',
+      apiKey: envOpenRouter,
+      model: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.6',
+    });
+  }
   if (envGoogle) {
-    return { provider: 'google', apiKey: envGoogle, model: 'gemini-2.5-flash' };
+    configs.push({ provider: 'google', apiKey: envGoogle, model: 'gemini-2.5-flash' });
   }
   if (envOpenAI) {
-    return { provider: 'openai', apiKey: envOpenAI, model: 'gpt-4o-mini' };
+    configs.push({ provider: 'openai', apiKey: envOpenAI, model: 'gpt-4o-mini' });
   }
   if (envAnthropic) {
-    return { provider: 'anthropic', apiKey: envAnthropic, model: 'claude-haiku-4-5-20251001' };
+    configs.push({ provider: 'anthropic', apiKey: envAnthropic, model: 'claude-haiku-4-5-20251001' });
   }
+  return configs;
+}
+
+export function getAIConfig() {
+  const list = getAIConfigList();
+  if (list.length > 0) return list[0];
 
   // Fall back to ~/.intelwatch/config.yml ai section
   try {
@@ -90,6 +110,9 @@ async function dispatchAI(systemPrompt, userPrompt, options, aiConfig) {
   if (provider === 'anthropic') {
     return callAnthropic(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
   }
+  if (provider === 'openrouter') {
+    return callOpenRouter(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
+  }
   return callOpenAI(aiConfig.apiKey, aiConfig.model, systemPrompt, userPrompt, maxTokens, json);
 }
 
@@ -101,33 +124,58 @@ async function dispatchAI(systemPrompt, userPrompt, options, aiConfig) {
  * with a strict instruction if the first response fails to parse.
  */
 export async function callAI(systemPrompt, userPrompt, options = {}) {
-  const aiConfig = getAIConfig();
-
-  if (!aiConfig) {
-    throw new Error(
-      'No AI provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY, ' +
-      'or add ai.api_key to ~/.intelwatch/config.yml. Local Ollama is the default fallback.'
-    );
+  // En mode --uncensored on force Ollama directement (logique préservée).
+  if (options.uncensored) {
+    return dispatchAI(systemPrompt, userPrompt, options, getAIConfig());
   }
 
-  const firstResponse = await dispatchAI(systemPrompt, userPrompt, options, aiConfig);
+  const configs = getAIConfigList();
+  if (configs.length === 0) {
+    // Aucun provider cloud configuré → fallback Ollama (getAIConfig le renvoie).
+    return dispatchAI(systemPrompt, userPrompt, options, getAIConfig());
+  }
 
-  // No JSON contract requested → return raw response.
+  // Itère les providers dans l'ordre de priorité. Sur 401/402/429/5xx ou
+  // crédits épuisés, fallback automatique sur le suivant. Mitige Gemini
+  // dégradé (memo `project_gemini_31_pro_degradation`) et OpenRouter
+  // sans crédits sans casser la session.
+  let firstResponse = null;
+  let firstError = null;
+  for (let i = 0; i < configs.length; i++) {
+    const cfg = configs[i];
+    try {
+      firstResponse = await dispatchAI(systemPrompt, userPrompt, options, cfg);
+      if (i > 0) {
+        console.log(chalk.gray(`  ℹ AI fallback succeeded on ${cfg.provider} (${cfg.model})`));
+      }
+      break;
+    } catch (e) {
+      if (!firstError) firstError = e;
+      const recoverable = /\b(401|402|403|429|500|502|503|504|insufficient|unauthorized|rate)\b/i.test(e.message);
+      const isLast = i === configs.length - 1;
+      if (!recoverable || isLast) {
+        if (isLast) {
+          console.error(chalk.gray(`  ⚠ All AI providers exhausted; last error: ${e.message}`));
+          throw e;
+        }
+        throw e;
+      }
+      console.log(chalk.gray(`  ⚠ ${cfg.provider} failed (${e.message.slice(0, 80)}), trying next provider...`));
+    }
+  }
+
   if (!options.json) return firstResponse;
-
   if (looksLikeValidJSON(firstResponse)) return firstResponse;
 
-  // One retry with aggressive system prompt suffix.
+  // Retry strict sur le MÊME provider qui a fini par répondre.
   console.log(chalk.gray('  ⚠ AI returned malformed JSON, retrying with strict instruction...'));
+  const lastUsedConfig = configs[0]; // simplification — le 1er qui répond
   const strictSystem =
     'You must return ONLY a single valid JSON object. No prose, no markdown, no fences. ' +
     'Start with { and end with }.\n\n' + systemPrompt;
   try {
-    const retryResponse = await dispatchAI(strictSystem, userPrompt, options, aiConfig);
-    return retryResponse;
+    return await dispatchAI(strictSystem, userPrompt, options, lastUsedConfig);
   } catch (e) {
-    // Retry network/API error → fall back to the original (possibly malformed) response;
-    // the downstream extractor will run its 3 fallback strategies.
     console.error(chalk.gray(`  ⚠ JSON retry failed (${e.message}); returning original response.`));
     return firstResponse;
   }
@@ -160,6 +208,45 @@ async function callOpenAI(apiKey, model, systemPrompt, userPrompt, maxTokens, js
   }
 
   const data = await res.json();
+  return data.choices[0].message.content.trim();
+}
+
+/**
+ * OpenRouter — OpenAI-compatible /chat/completions endpoint, unified routing
+ * vers Sonnet 4.6, Opus 4.7, GPT, etc. Modèle pilotable via OPENROUTER_MODEL.
+ * `response_format: json_object` supporté nativement.
+ */
+async function callOpenRouter(apiKey, model, systemPrompt, userPrompt, maxTokens, json = false) {
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  };
+  if (json) body.response_format = { type: 'json_object' };
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      // Hints OpenRouter pour le ranking / metering (non-bloquant si absent)
+      'HTTP-Referer': 'https://recognity.fr/tools/intelwatch',
+      'X-Title': 'Recognity intelwatch',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`OpenRouter API ${res.status}: ${errBody.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (!data.choices || !data.choices[0]?.message?.content) {
+    throw new Error('Invalid OpenRouter response');
+  }
   return data.choices[0].message.content.trim();
 }
 
