@@ -105,6 +105,53 @@ export async function runMA(sirenOrName, options) {
   const codeBuiltMaHistory = buildMaHistoryFromCode(scrapedMaContent, offBrandSubsForMa, bodacc || []);
   if (codeBuiltMaHistory.length) console.log(chalk.gray(`  📋 M&A timeline (${codeBuiltMaHistory.length} entries): ${codeBuiltMaHistory.map(e => `${e.target?.substring(0,15)} [${e.date}]`).join(', ')}`));
 
+  // ── OSINT enrichments en parallèle : décisions de justice + marques INPI ──
+  // Tous deux BYOK (JUDILIBRE_KEY_ID, INPI_USERNAME/PASSWORD).
+  // Non-bloquant : ne casse pas le profil si l'API n'est pas configurée.
+  let judilibreDecisions = [];
+  let inpiMarques = [];
+  let inpiBrevets = [];
+  try {
+    const [judilibreMod, inpiMod] = await Promise.all([
+      import('../../scrapers/judilibre.js'),
+      import('../../scrapers/inpi.js'),
+    ]);
+    const dirigeantNames = (dirigeants || []).slice(0, 3).map(d => {
+      const first = d.prenom || '';
+      const last = d.nom || d.denomination || '';
+      return `${first} ${last}`.trim();
+    }).filter(Boolean);
+
+    const tasks = [];
+    if (judilibreMod.hasJudilibreKey()) {
+      section('  🏛️  Décisions de justice (JudiLibre)');
+      tasks.push(judilibreMod.searchForTarget(identity.name || '', dirigeantNames));
+    } else {
+      tasks.push(Promise.resolve({ decisions: [], total: 0, errors: ['JUDILIBRE_KEY_ID non défini'] }));
+    }
+    if (inpiMod.hasInpiCredentials()) {
+      tasks.push(inpiMod.searchMarquesBySiren(siren, { limit: 30 }));
+      tasks.push(inpiMod.searchBrevetsBySiren(siren, { limit: 10 }));
+    } else {
+      tasks.push(Promise.resolve({ marques: [], total: 0, error: 'INPI credentials non définis' }));
+      tasks.push(Promise.resolve({ brevets: [], total: 0, error: 'INPI credentials non définis' }));
+    }
+    const [jud, marqRes, brevRes] = await Promise.all(tasks);
+    judilibreDecisions = jud.decisions || [];
+    inpiMarques = marqRes.marques || [];
+    inpiBrevets = brevRes.brevets || [];
+
+    if (judilibreMod.hasJudilibreKey()) {
+      console.log(chalk.gray(`    ${judilibreDecisions.length} décisions trouvées${jud.errors?.length ? ' (erreurs: ' + jud.errors.length + ')' : ''}`));
+    }
+    if (inpiMod.hasInpiCredentials()) {
+      section('  ®️  IP — INPI marques / brevets');
+      console.log(chalk.gray(`    ${inpiMarques.length} marques · ${inpiBrevets.length} brevets${marqRes.error ? ' (marques: ' + marqRes.error + ')' : ''}${brevRes.error ? ' (brevets: ' + brevRes.error + ')' : ''}`));
+    }
+  } catch (e) {
+    warn(`     OSINT enrichment failed: ${e.message}`);
+  }
+
   // ── Competitor discovery (always — used by AI prompt and PDF fallback) ──
   // Lance la découverte concurrents en parallèle d'autres étapes pour ne pas
   // alourdir la critical path. Le résultat sert au prompt AI ET de fallback
@@ -170,6 +217,7 @@ export async function runMA(sirenOrName, options) {
       dirigeants, representants, etablissements, proceduresCollectives,
       subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory,
       scrapedMaContent, siren, competitorCandidates,
+      judilibreDecisions, inpiMarques, inpiBrevets,
     });
 
     try {

@@ -1,3 +1,17 @@
+## [1.7.2] - 2026-05-15
+
+### Added — Stack OSINT subtile (priorité différenciation vs Sinequa)
+
+- **JudiLibre** (`src/scrapers/judilibre.js`) — décisions de justice anonymisées (Cour de cassation + cours d'appel + TJ) via l'API PISTE de la Cour de cassation. Recherche multi-canal raison sociale + dirigeants, dédup par id, tri date desc. Section dédiée dans le PDF de DD. Auth : `KeyId` simple (clé PISTE freemium après inscription). Env : `JUDILIBRE_KEY_ID`.
+- **INPI marques + brevets** (`src/scrapers/inpi.js`) — recherche `data.inpi.fr` par SIREN du titulaire. Marques avec classes Nice, brevets avec n° publication. Auth : JWT login/password (cache 1h intra-session). Env : `INPI_USERNAME`, `INPI_PASSWORD`.
+- **Pipeline profile** — JudiLibre + INPI fetchés en parallèle de la découverte concurrents, non-bloquants si keys absentes. PDF expose `c.judilibre.decisions` et `c.inpi.{marques,brevets}` rendues comme tableaux dédiés dans `intel-report.js` (shared-pdf).
+- **6 nouveaux tests** (`test/judilibre-inpi.test.js`) sur la dégradation gracieuse sans clés. 254 tests passent.
+- **`~/.intelwatch/.env`** : entrées BYOK documentées + commentées pour `JUDILIBRE_KEY_ID` et `INPI_USERNAME/PASSWORD`.
+
+### Doc
+
+- README mis à jour avec les 5 sources OSINT FR (Pappers, Exa, Brave, JudiLibre, INPI) et les paths d'inscription pour chaque BYOK.
+
 ## [1.7.1] - 2026-05-15
 
 ### Fixed

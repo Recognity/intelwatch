@@ -138,6 +138,16 @@ docker run -d --name searxng -p 8888:8080 \
 SEARXNG_URL="http://192.168.1.30:8888"
 ```
 
+### OSINT subtile — différenciation DD vs Sinequa
+
+Sources spécialisées branchées dans la section Deep Profile (BYOK, gracieuses si absentes).
+
+| Source | Signal | Setup |
+|---|---|---|
+| **JudiLibre** | Décisions de justice anonymisées (Cour cass + CA + TJ) — litiges majeurs sur la cible ou ses dirigeants | Inscription [piste.gouv.fr](https://piste.gouv.fr) → souscrire JudiLibre → `JUDILIBRE_KEY_ID` |
+| **INPI marques** | Portefeuille de marques déposées par SIREN — signal IP, classes Nice, expansion produit | Compte gratuit [data.inpi.fr](https://data.inpi.fr) → `INPI_USERNAME` + `INPI_PASSWORD` |
+| **INPI brevets** | Brevets déposés par SIREN — signal R&D et technologie | Mêmes credentials INPI |
+
 ### Optional providers
 
 ```bash

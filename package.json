@@ -1,6 +1,6 @@
 {
   "name": "intelwatch",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Competitive intelligence CLI — track competitors, keywords, and brand mentions from the terminal",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "intelwatch": "./bin/intelwatch.js"
   },
   "scripts": {
-    "test": "node --test test/storage.test.js test/sentiment.test.js test/tech-detect.test.js test/export.test.js test/i18n.test.js test/error-handler.test.js test/reddit-hn.test.js test/license.test.js test/providers.test.js test/searxng-search.test.js test/compare.test.js test/brave-search.test.js test/profile-pdf-data.test.js test/profile-ma-history.test.js",
+    "test": "node --test test/storage.test.js test/sentiment.test.js test/tech-detect.test.js test/export.test.js test/i18n.test.js test/error-handler.test.js test/reddit-hn.test.js test/license.test.js test/providers.test.js test/searxng-search.test.js test/compare.test.js test/brave-search.test.js test/profile-pdf-data.test.js test/profile-ma-history.test.js test/judilibre-inpi.test.js",
     "start": "node bin/intelwatch.js"
   },
   "dependencies": {

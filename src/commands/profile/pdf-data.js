@@ -5,7 +5,7 @@ import { getLanguage } from '../../utils/i18n.js';
 /**
  * Build the structured data object for PDF report generation.
  */
-export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates }) {
+export function buildPdfData({ identity, financialHistory, consolidatedFinances, ubo, bodacc, dirigeants, representants, etablissements, proceduresCollectives, subsidiariesData, pressResults, aiAnalysis, codeBuiltMaHistory, scrapedMaContent, siren, competitorCandidates, judilibreDecisions, inpiMarques, inpiBrevets }) {
   const fmtEuro = (n) => {
     if (n == null) return '—';
     const abs = Math.abs(n);
@@ -171,6 +171,36 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
         neutral: pressMentions.filter(m => m.sentiment === 'neutral').length,
         negative: pressMentions.filter(m => m.sentiment === 'negative').length,
         mentions: pressMentions.slice(0, 20),
+      } : undefined,
+      judilibre: (judilibreDecisions && judilibreDecisions.length) ? {
+        total: judilibreDecisions.length,
+        decisions: judilibreDecisions.slice(0, 15).map(d => ({
+          id: d.id,
+          jurisdiction: d.jurisdiction || '—',
+          chamber: d.chamber || '',
+          date: d.date || '—',
+          solution: d.solution || '—',
+          summary: (d.summary || '').substring(0, 220),
+          matchedQuery: d.matchedQuery || null,
+          url: d.url,
+        })),
+      } : undefined,
+      inpi: ((inpiMarques && inpiMarques.length) || (inpiBrevets && inpiBrevets.length)) ? {
+        marques: (inpiMarques || []).slice(0, 15).map(m => ({
+          title: m.title || '—',
+          depotNumber: m.depotNumber,
+          depositDate: m.depositDate || '—',
+          status: m.status || '—',
+          classes: (m.classes || []).slice(0, 6).join(', ') || '—',
+          url: m.url,
+        })),
+        brevets: (inpiBrevets || []).slice(0, 10).map(b => ({
+          title: b.title || '—',
+          publicationNumber: b.publicationNumber,
+          depositDate: b.depositDate || '—',
+          status: b.status || '—',
+          url: b.url,
+        })),
       } : undefined,
       subsidiaries: subsidiariesData.filter(s => s.ca != null).map(s => ({
         name: s.name, ville: s.ville,
