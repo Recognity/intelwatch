@@ -102,11 +102,32 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
     capitalTrajectory: capitalTrajectory || null,
     groupStructure: (() => {
       const gs = aiAnalysis?.groupStructure || {};
-      const pappersSubs = (subsidiariesData || [])
-        .filter(s => s.ca && s.ca > 0)
-        .sort((a, b) => (b.ca || 0) - (a.ca || 0))
-        .slice(0, 7)
-        .map(s => ({ entity: s.name, revenue: `${(s.ca / 1e6).toFixed(1)} M€${s.annee ? ' (' + s.annee + ')' : ''}` }));
+      // Inclus TOUTES les filiales Pappers, pas seulement celles avec CA>0.
+      // Beaucoup de filiales opérationnelles (international, management
+      // vehicles, holdings de détention) n'ont pas de CA publié — les omettre
+      // vide la page Group Structure. Tri : CA desc, puis effectif, puis nom.
+      const allSubs = (subsidiariesData || [])
+        .filter(s => s.name && s.name.trim())
+        .sort((a, b) => {
+          const caDiff = (b.ca || 0) - (a.ca || 0);
+          if (caDiff !== 0) return caDiff;
+          const effA = a.effectif ? 1 : 0;
+          const effB = b.effectif ? 1 : 0;
+          if (effB !== effA) return effB - effA;
+          return (a.name || '').localeCompare(b.name || '');
+        })
+        .slice(0, 9);
+      const pappersSubs = allSubs.map(s => {
+        let revenue = null;
+        if (s.ca && s.ca > 0) {
+          revenue = `${(s.ca / 1e6).toFixed(1)} M€${s.annee ? ' (' + s.annee + ')' : ''}`;
+        } else if (s.ville) {
+          revenue = s.ville;
+        } else if (s.status && s.status !== 'Active') {
+          revenue = s.status;
+        }
+        return { entity: s.name, revenue };
+      });
       if (pappersSubs.length > 0) gs.subsidiaries = pappersSubs;
       return gs;
     })(),
