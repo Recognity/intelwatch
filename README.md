@@ -23,6 +23,18 @@ npx intelwatch profile kpmg.fr --ai
 
 Generate a comprehensive M&A/PE due diligence report in seconds. Intelwatch uses Smart Routing to fetch the best data based on the company's location (Pappers for France, Apollo/Clearbit/OpenCorporates for International).
 
+### what's new in 1.7.4 — Golden Team validation
+
+The DD PDF now ships **7 must-have blocks** validated by a full Golden Team session (expert métier → manager → dev × 3 → designer → reviewer → validateur) :
+
+- **Executive Summary page 1** — Investment Thesis (2-3 phrases) + Top 3 Red Flags ordonnés par severity + Recommendation tranchée (`distressed_ma` / `watchlist` / `pass`) dès la première page.
+- **Health Score gauge + 6 ratios financiers nommés** — SVG gauge demi-cercle 0-100 + Net Debt/EBITDA (seuil distress 3.5×), ROE, BFR/CA, Debt/Equity, Autonomie financière, Cash Runway. Chaque ratio color-coded avec verdict.
+- **3 SVG inline charts** — Capital Trajectory step-line (évolution BODACC), Press Sentiment timeline 24 mois (negative/neutral/positive stacked), Health Gauge demi-cercle. Tout inline, zéro hotlink.
+- **Key Man Risk auto-flag** — Détection ≥3 changements Président OU ≥2 CAC sur 18 mois glissants, regex `\b`-bounded strict + dédup BODACC.
+- **Peer Median Multiples** — Median EV/EBITDA + EV/Revenue + Price/Book sur peers same-NAF via Pappers. Pool concurrent 4 workers, cache disque 7 jours, fail-soft sur 429/401 (pas de retry storm), guard SSRF IP privées.
+- **BFR drift YoY + Cash Runway narrative** — Mois de runway restant à burn rate constant + alerte si BFR drift > 20% YoY.
+- **Provenance Footer** — Sources listées (Pappers, BODACC, INSEE, Judilibre, INPI, press) + badge "100% public sources · TDM-compliant" en pied de PDF.
+
 ```bash
 # Generate a deep profile with AI Due Diligence
 intelwatch profile doctolib.fr --ai
