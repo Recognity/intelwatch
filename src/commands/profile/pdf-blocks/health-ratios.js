@@ -224,15 +224,33 @@ function calcAutonomieFinanciere(latest, scope) {
   };
 }
 
-/** Cash runway en mois : trésorerie / (|résultat mensuel|) si déficitaire. */
-function calcCashRunway(latest, scope) {
+/**
+ * Cash runway en mois : trésorerie / (|résultat mensuel|) si déficitaire.
+ *
+ * Requalification (1.7.5, feedback Partner Raphael) :
+ * Si une procédure préventive est ouverte (conciliation L.611-10 OU
+ * sauvegarde / mandat ad hoc / preprocedure flag), le runway brut basé sur
+ * la trésorerie statique est trompeur — la dette CT exigée par le pool
+ * bancaire en pré-procédure n'est pas reflétée. On relabelle "hors dette CT
+ * exigible" et on force YELLOW (jamais GREEN) pour éviter la contradiction
+ * "47 mois de runway GREEN + conciliation CRITICAL" sur le même rapport.
+ */
+function calcCashRunway(latest, scope, signals = {}) {
   const cash = latest.tresorerie;
   const ni = latest.resultat;
   const year = latest.annee || latest.year || '—';
 
+  const inPreprocedure = !!(signals?.distress?.conciliation === true || signals?.preprocedure === true);
+  const baseName = inPreprocedure ? 'Cash runway (hors dette CT exigible)' : 'Cash runway';
+  // Cap couleur en pré-procédure : GREEN → YELLOW (red reste red, unknown reste unknown).
+  const capColor = (status) => (inPreprocedure && status === 'green' ? 'yellow' : status);
+  const preprocedureSuffix = inPreprocedure
+    ? ' — procédure préventive active, dette CT exigible non reflétée'
+    : '';
+
   if (cash == null || ni == null) {
     return {
-      ratio: unknownRatio('Cash runway', '≥12 mois', `Trésorerie ou résultat manquant (FY${year} ${scope})`),
+      ratio: unknownRatio(baseName, '≥12 mois', `Trésorerie ou résultat manquant (FY${year} ${scope})`),
       months: null,
       isProfitable: null,
     };
@@ -240,11 +258,11 @@ function calcCashRunway(latest, scope) {
   if (ni >= 0) {
     return {
       ratio: {
-        name: 'Cash runway',
+        name: baseName,
         value: 'N/A — bénéficiaire',
         benchmark: '≥12 mois',
-        status: 'green',
-        evidence: `Résultat ${formatEuro(ni)} positif (FY${year} ${scope}) — pas de burn`,
+        status: capColor('green'),
+        evidence: `Résultat ${formatEuro(ni)} positif (FY${year} ${scope}) — pas de burn${preprocedureSuffix}`,
       },
       months: null,
       isProfitable: true,
@@ -254,7 +272,7 @@ function calcCashRunway(latest, scope) {
   const months = safeDiv(cash, monthlyBurn);
   if (months == null) {
     return {
-      ratio: unknownRatio('Cash runway', '≥12 mois', `Burn mensuel nul malgré perte (FY${year} ${scope})`),
+      ratio: unknownRatio(baseName, '≥12 mois', `Burn mensuel nul malgré perte (FY${year} ${scope})`),
       months: null,
       isProfitable: false,
     };
@@ -266,11 +284,11 @@ function calcCashRunway(latest, scope) {
 
   return {
     ratio: {
-      name: 'Cash runway',
+      name: baseName,
       value: `${months.toFixed(1).replace('.', ',')} mois`,
       benchmark: '≥12 mois',
-      status,
-      evidence: `Trésorerie ${formatEuro(cash)} / (|résultat| ${formatEuro(Math.abs(ni))} / 12) (FY${year} ${scope})`,
+      status: capColor(status),
+      evidence: `Trésorerie ${formatEuro(cash)} / (|résultat| ${formatEuro(Math.abs(ni))} / 12) (FY${year} ${scope})${preprocedureSuffix}`,
     },
     months,
     isProfitable: false,
@@ -343,8 +361,10 @@ function deriveScoreAndColor(ratios, aiHealthScore) {
 
 // ── Main export ────────────────────────────────────────────────────────────
 
-export function buildHealthScoreBlock({ financialHistory = [], consolidatedFinances = [], aiHealthScore = null } = {}) {
+export function buildHealthScoreBlock({ financialHistory = [], consolidatedFinances = [], aiHealthScore = null, signals = null } = {}) {
   const { latest, scope, source } = pickLatest(consolidatedFinances, financialHistory);
+  const inPreprocedure = !!(signals?.distress?.conciliation === true || signals?.preprocedure === true);
+  const cashRunwayLabel = inPreprocedure ? 'Cash runway (hors dette CT exigible)' : 'Cash runway';
 
   // No data → return a fully unknown block, no throw.
   if (!latest) {
@@ -354,7 +374,7 @@ export function buildHealthScoreBlock({ financialHistory = [], consolidatedFinan
       { ...unknownRatio('BFR / CA', '≤15%', 'Aucune donnée financière'), yoyDriftPct: null },
       unknownRatio('Debt / Equity', '≤1,5', 'Aucune donnée financière'),
       unknownRatio('Autonomie financière', '≥30%', 'Aucune donnée financière'),
-      unknownRatio('Cash runway', '≥12 mois', 'Aucune donnée financière'),
+      unknownRatio(cashRunwayLabel, '≥12 mois', 'Aucune donnée financière'),
     ];
     const { score, color } = deriveScoreAndColor(ratios, aiHealthScore);
     return {
@@ -371,7 +391,7 @@ export function buildHealthScoreBlock({ financialHistory = [], consolidatedFinan
   const { ratio: bfrRatio, drift: bfrDriftCtx } = calcBfrOverCa(source, scope);
   const debtEquity = calcDebtOverEquity(latest, scope);
   const autonomie = calcAutonomieFinanciere(latest, scope);
-  const { ratio: cashRunwayRatio, ...runwayCtx } = calcCashRunway(latest, scope);
+  const { ratio: cashRunwayRatio, ...runwayCtx } = calcCashRunway(latest, scope, signals);
 
   const ratios = [netDebtEbitda, roe, bfrRatio, debtEquity, autonomie, cashRunwayRatio];
 

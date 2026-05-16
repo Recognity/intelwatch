@@ -65,10 +65,21 @@ export function buildPdfData({ identity, financialHistory, consolidatedFinances,
   const consolidatedEquity = latestConsolidated?.capitauxPropres ?? latestConsolidated?.fondsPropres ?? null;
 
   // ── Structured blocks (MH1/MH3/MH4/MH7) ───────────────────────────────────
+  // MH7 — dérive `signals` à partir des publications BODACC pour requalifier
+  // le Cash runway en présence d'une procédure préventive (conciliation L.611-10,
+  // sauvegarde, mandat ad hoc) ou d'une procédure collective (RJ/LJ).
+  // Évite la contradiction "47 mois GREEN" + "conciliation CRITICAL" sur NOVARES.
+  const distressBodacc = Array.isArray(bodacc) ? bodacc.filter((b) => b && b.isDistress) : [];
+  const preprocedureTypes = new Set(['conciliation', 'sauvegarde', 'mandat_ad_hoc']);
+  const hasConciliation = distressBodacc.some((b) => b.distressType === 'conciliation');
+  const hasPreprocedure = distressBodacc.some((b) => preprocedureTypes.has(b.distressType));
+  const healthSignals = { distress: { conciliation: hasConciliation }, preprocedure: hasPreprocedure };
+
   const healthScoreBlock = buildHealthScoreBlock({
     financialHistory,
     consolidatedFinances,
     aiHealthScore: aiAnalysis?.healthScore,
+    signals: healthSignals,
   });
   const keyManRisk = buildKeyManRiskBlock({ bodacc, dirigeants, representants });
   const executiveSummary = buildExecutiveSummaryBlock({

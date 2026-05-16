@@ -1,3 +1,10 @@
+## [1.7.5] - 2026-05-16
+
+### Fixed
+
+- **fix(intelwatch): cash runway requalifié hors dette CT exigible quand procédure préventive/conciliation ouverte (Raphael feedback)** — `src/commands/profile/pdf-blocks/health-ratios.js` : `buildHealthScoreBlock` accepte désormais un paramètre optionnel `signals`. Si `signals.distress.conciliation === true` ou `signals.preprocedure === true`, le ratio "Cash runway" est relabellé `"Cash runway (hors dette CT exigible)"` et la couleur est plafonnée à YELLOW (jamais GREEN). Évite la contradiction visuelle "47,1 mois GREEN" + "1 signal distress conciliation CRITICAL" sur le même rapport (audit Partner Zalis pipeline 2026-05-16). Comportement inchangé si `signals` non fourni — rétrocompat totale.
+- **wiring `src/commands/profile/pdf-data.js` (+11 L, Wave 4)** : propagation de `signals = { distress: { conciliation }, preprocedure }` dérivé du `bodacc` distress filtré au caller `buildHealthScoreBlock`. Smoke NOVARES PDF v1.7.5 : label requalifié + YELLOW + suffix "procédure préventive active" — contradiction éliminée. 254/254 tests verts (1 flake 1er run, stable runs 2-3).
+
 ## [1.7.4] - 2026-05-16
 
 ### Added — Golden Team validation run
